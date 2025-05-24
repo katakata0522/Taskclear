@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja"> <!-- Document language set to Japanese -->
+<head>
+    <meta charset="UTF-8"> <!-- Character encoding set to UTF-8 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- Responsive viewport settings -->
+    <title>趣味のバックログ管理</title> <!-- Page title -->
+    <link rel="stylesheet" href="style.css"> <!-- Link to the external CSS file -->
+</head>
+<body>
+    <!-- Header Section: Contains the main title of the application -->
+    <header>
+        <h1>趣味のバックログ管理</h1> <!-- Main application title -->
+    </header>
+
+    <!-- Main Content Section: Wraps the primary content areas of the page -->
+    <main>
+        <!-- Input Form Section: Area for users to input new backlog items -->
+        <section id="input-form-section">
+            <h2>アイテム入力</h2> <!-- Title for the input form section -->
+            <form id="item-form"> <!-- Form for submitting new item details -->
+                <!-- Name Input Field -->
+                <div>
+                    <label for="name">名前:</label> <!-- Label for the name input -->
+                    <input type="text" id="name" name="name" required> <!-- Text input for item name, required field -->
+                </div>
+                <!-- Category Selection Field -->
+                <div>
+                    <label for="category">カテゴリ:</label> <!-- Label for the category selection -->
+                    <select id="category" name="category"> <!-- Dropdown for selecting item category -->
+                        <option value="本">本</option> <!-- Category: Book -->
+                        <option value="ゲーム">ゲーム</option> <!-- Category: Game -->
+                        <option value="プラモデル">プラモデル</option> <!-- Category: Plastic Model -->
+                        <option value="その他">その他</option> <!-- Category: Other -->
+                    </select>
+                </div>
+                <!-- Image Upload Field -->
+                <div>
+                    <label for="image">画像:</label> <!-- Label for the image upload -->
+                    <input type="file" id="image" name="image" accept="image/*"> <!-- File input for item image, accepts any image type -->
+                    <!-- A paragraph element (id="current-image-preview") is dynamically inserted here by script.js to show the current image name during editing -->
+                </div>
+                <!-- Purchase Date Input Field -->
+                <div>
+                    <label for="purchase-date">購入日:</label> <!-- Label for the purchase date input -->
+                    <input type="date" id="purchase-date" name="purchase-date"> <!-- Date input for item purchase date -->
+                </div>
+                <!-- Notes Textarea Field -->
+                <div>
+                    <label for="notes">メモ:</label> <!-- Label for the notes textarea -->
+                    <textarea id="notes" name="notes"></textarea> <!-- Textarea for additional notes about the item -->
+                </div>
+                <!-- Status Selection Field -->
+                <div>
+                    <label for="status">ステータス:</label> <!-- Label for the status selection -->
+                    <select id="status" name="status"> <!-- Dropdown for selecting item status -->
+                        <option value="未着手">未着手</option> <!-- Status: Not Started -->
+                        <option value="進行中">進行中</option> <!-- Status: In Progress -->
+                        <option value="一時中断">一時中断</option> <!-- Status: On Hold -->
+                        <option value="完了">完了</option> <!-- Status: Completed -->
+                    </select>
+                </div>
+                <!-- Action Buttons for the Form -->
+                <div>
+                    <button type="submit" id="add-button">追加</button> <!-- Button to add a new item -->
+                    <button type="button" id="update-button" style="display:none;">更新</button> <!-- Button to update an existing item, hidden by default -->
+                    <button type="button" id="cancel-button">キャンセル</button> <!-- Button to cancel the current form action -->
+                </div>
+            </form>
+        </section>
+
+        <!-- Item Display Section: Area where backlog items are listed and managed -->
+        <section id="display-section">
+            <h2>アイテム一覧</h2> <!-- Title for the item display section -->
+            
+            <!-- Filtering Controls: Allows users to filter the displayed items -->
+            <div id="filter-controls">
+                <label for="filter-category">カテゴリでフィルタ:</label> <!-- Label for category filter -->
+                <select id="filter-category"> <!-- Dropdown to filter items by category -->
+                    <option value="すべて">すべて</option> <!-- Option: Show all categories -->
+                    <option value="本">本</option>
+                    <option value="ゲーム">ゲーム</option>
+                    <option value="プラモデル">プラモデル</option>
+                    <option value="その他">その他</option>
+                </select>
+                <label for="filter-status">ステータスでフィルタ:</label> <!-- Label for status filter -->
+                <select id="filter-status"> <!-- Dropdown to filter items by status -->
+                    <option value="すべて">すべて</option> <!-- Option: Show all statuses -->
+                    <option value="未着手">未着手</option>
+                    <option value="進行中">進行中</option>
+                    <option value="一時中断">一時中断</option>
+                    <option value="完了">完了</option>
+                </select>
+            </div>
+            
+            <!-- Sorting Controls: Allows users to sort the displayed items -->
+            <div id="sort-controls">
+                <label for="sort-by">並び替え:</label> <!-- Label for sort options -->
+                <select id="sort-by"> <!-- Dropdown to sort items by different criteria -->
+                    <option value="date-desc">購入日 (新しい順)</option> <!-- Sort by purchase date, newest first -->
+                    <option value="date-asc">購入日 (古い順)</option> <!-- Sort by purchase date, oldest first -->
+                    <option value="name-asc">名前 (昇順)</option> <!-- Sort by name, ascending -->
+                    <option value="name-desc">名前 (降順)</option> <!-- Sort by name, descending -->
+                </select>
+            </div>
+            
+            <!-- Item List Display Area: Container where JavaScript will render the item cards -->
+            <div id="item-list">
+                <!-- Individual items (cards) are dynamically generated here by script.js -->
+                <!-- Example of a message when no items are present (also handled by script.js): <p>アイテムはまだありません。</p> -->
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer Section: Optional area for copyright or other information (currently commented out) -->
+    <!-- 
+    <footer>
+        <p>&copy; 2023 趣味のバックログ管理</p> 
+    </footer> 
+    -->
+
+    <script src="script.js"></script> <!-- Link to the external JavaScript file -->
+</body>
+</html>
