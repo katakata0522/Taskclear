@@ -1,232 +1,452 @@
-/* General Body Styles */
-/* These styles apply to the entire HTML body */
+/* === CSS Custom Properties (Variables) === */
+:root {
+    --font-family-base: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-size-base: 1rem; /* Approx 16px */
+    --line-height-base: 1.6;
+
+    --color-primary: #007bff; /* Blue */
+    --color-primary-dark: #0056b3;
+    --color-secondary: #6c757d; /* Grey */
+    --color-secondary-dark: #545b62;
+    --color-success: #28a745; /* Green */
+    --color-success-dark: #1e7e34;
+    --color-danger: #dc3545; /* Red */
+    --color-danger-dark: #b02a37;
+    --color-warning: #ffc107; /* Yellow */
+    --color-warning-dark: #d39e00;
+    --color-light: #f8f9fa; /* Very light grey / off-white */
+    --color-white: #ffffff;
+    --color-dark: #343a40; /* Dark grey / off-black */
+    --color-text: #212529; /* Body text */
+    --color-border: #dee2e6; /* Light grey for borders */
+    --color-input-bg: var(--color-white);
+    --color-section-bg: var(--color-white);
+    --color-body-bg: #e9ecef; /* Slightly darker body background */
+
+    --spacing-xs: 0.25rem;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 1rem;
+    --spacing-lg: 1.5rem;
+    --spacing-xl: 2rem;
+
+    --border-radius-sm: 0.2rem;
+    --border-radius-md: 0.3rem;
+    --border-radius-lg: 0.5rem;
+
+    --box-shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    --box-shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+/* === Base Styles & Reset === */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html {
+    font-size: var(--font-size-base);
+    -webkit-text-size-adjust: 100%; /* Prevent font scaling in landscape on iOS */
+}
+
 body {
-    font-family: sans-serif; /* Sets a common sans-serif font for readability */
-    line-height: 1.6; /* Standard line spacing for text */
-    margin: 0; /* Removes default browser margin */
-    padding: 0; /* Removes default browser padding */
-    background-color: #f4f4f4; /* Light grey background for the page */
-    color: #333; /* Dark grey color for text, providing good contrast */
+    font-family: var(--font-family-base);
+    line-height: var(--line-height-base);
+    color: var(--color-text);
+    background-color: var(--color-body-bg);
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh; /* Ensure footer (if any) can stick to bottom */
 }
 
-/* Header Styles */
-/* Styles for the <header> element, typically containing the main title */
+/* === Typography === */
+h1, h2, h3 {
+    margin-bottom: var(--spacing-md);
+    line-height: 1.3;
+    font-weight: 600;
+}
+
+h1 {
+    font-size: 2rem;
+    color: var(--color-white);
+}
+
+h2 {
+    font-size: 1.5rem; /* Was 1.75rem, adjusting for balance */
+    color: var(--color-dark);
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--spacing-sm);
+    margin-bottom: var(--spacing-lg);
+}
+
+p {
+    margin-bottom: var(--spacing-md);
+}
+
+label {
+    display: block;
+    margin-bottom: var(--spacing-xs);
+    font-weight: 500;
+}
+
+/* === Layout === */
+.app-wrapper {
+    width: 100%;
+    max-width: 1200px; /* Max container width */
+    margin: 0 auto; /* Center container */
+    padding: var(--spacing-md);
+    flex-grow: 1; /* Allows wrapper to take up available space */
+}
+
 header {
-    background: #333; /* Dark background for the header */
-    color: #fff; /* White text color for contrast with the dark background */
-    padding: 1rem 0; /* 1rem top/bottom padding, 0 left/right */
-    text-align: center; /* Centers the text within the header */
+    background: var(--color-dark); /* Changed from #333 */
+    color: var(--color-white);
+    padding: var(--spacing-md) 0;
+    text-align: center;
+    box-shadow: var(--box-shadow-sm);
+    margin-bottom: var(--spacing-lg);
 }
 
-header h1 {
-    margin: 0; /* Removes default margin from the h1 tag within the header */
-}
-
-/* Main Content Styles */
-/* Styles for the <main> element, which wraps the primary content of the page */
 main {
-    padding: 1rem; /* Padding around the main content area */
-    overflow: auto; /* Manages content overflow, e.g., if content is wider than the container */
+    display: flex;
+    flex-direction: column; /* Default to column for mobile */
+    gap: var(--spacing-lg);
 }
 
-/* Section Styles */
-/* General styles for <section> elements used for grouping content blocks */
 section {
-    background: #fff; /* White background for content sections */
-    margin-bottom: 1rem; /* Space below each section */
-    padding: 1rem; /* Padding inside each section */
-    border-radius: 5px; /* Rounded corners for sections */
+    background: var(--color-section-bg);
+    padding: var(--spacing-lg);
+    border-radius: var(--border-radius-lg); /* Softer corners */
+    box-shadow: var(--box-shadow-md);
+    margin-bottom: var(--spacing-lg); /* Keep some bottom margin for sections */
 }
 
-/* Input Form Section Styles */
-/* Styles specific to headings within the input form and display sections */
-#input-form-section h2,
-#display-section h2 {
-    color: #333; /* Dark grey color for section titles */
-    margin-top: 0; /* Removes default top margin from h2 tags */
-}
-
-/* Styles for divs within the item form, used for layout of form elements */
-#item-form div {
-    margin-bottom: 0.75rem; /* Space below each form group (label + input) */
-}
-
-/* Styles for labels within the item form */
-#item-form label {
-    display: block; /* Makes labels take the full width, placing inputs on the next line */
-    margin-bottom: 0.25rem; /* Small space below each label */
-}
-
-/* Common styles for various input types, select, and textarea within the item form */
+/* === Form Elements === */
 #item-form input[type="text"],
 #item-form input[type="file"],
 #item-form input[type="date"],
 #item-form select,
 #item-form textarea {
-    width: 100%; /* Makes form elements take the full width of their container */
-    padding: 0.5rem; /* Padding inside form elements */
-    border: 1px solid #ddd; /* Light grey border */
-    border-radius: 3px; /* Slightly rounded corners for form elements */
-    box-sizing: border-box; /* Ensures padding and border don't add to the element's total width/height */
+    width: 100%;
+    padding: var(--spacing-sm) var(--spacing-md); /* More padding */
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-md);
+    background-color: var(--color-input-bg);
+    color: var(--color-text);
+    font-size: 0.95rem;
+    line-height: var(--line-height-base);
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
 }
 
-/* Specific styles for the textarea element in the item form */
+#item-form input[type="text"]:focus,
+#item-form input[type="file"]:focus,
+#item-form input[type="date"]:focus,
+#item-form select:focus,
+#item-form textarea:focus {
+    border-color: var(--color-primary);
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+#item-form input[type="file"] {
+    padding-top: calc(var(--spacing-sm) - 2px); /* Align file input padding better */
+    padding-bottom: calc(var(--spacing-sm) - 2px);
+}
+
 #item-form textarea {
-    min-height: 80px; /* Minimum height for the textarea */
-    resize: vertical; /* Allows vertical resizing, but not horizontal */
+    min-height: 100px;
+    resize: vertical;
 }
 
-/* Button Styles */
-/* Common styles for buttons within the item form */
+#item-form div { /* Container for label + input */
+    margin-bottom: var(--spacing-md);
+}
+
+/* === Buttons === */
+/* Base button style */
+.btn {
+    display: inline-block;
+    font-weight: 500;
+    color: var(--color-white);
+    text-align: center;
+    vertical-align: middle;
+    cursor: pointer;
+    user-select: none;
+    background-color: transparent;
+    border: 1px solid transparent;
+    padding: var(--spacing-sm) var(--spacing-lg);
+    font-size: 0.95rem;
+    line-height: var(--line-height-base);
+    border-radius: var(--border-radius-md);
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    margin-right: var(--spacing-sm);
+}
+
+.btn:hover {
+    text-decoration: none;
+}
+
+.btn:focus, .btn.focus {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25); /* Default focus, can be overridden */
+}
+
+/* Applying base style to form buttons */
 #item-form button {
-    padding: 0.7rem 1.5rem; /* Padding inside buttons */
-    border: none; /* Removes default browser border */
-    border-radius: 3px; /* Slightly rounded corners for buttons */
-    cursor: pointer; /* Changes cursor to a pointer on hover */
-    margin-right: 0.5rem; /* Space to the right of each button */
-    font-size: 1em; /* Standard font size for buttons */
+    /* Inherits from .btn, specific overrides below */
 }
 
-/* Styles for the "Add" button */
 #add-button {
-    background: #5cb85c; /* Green background */
-    color: white; /* White text */
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--color-white);
 }
-
 #add-button:hover {
-    background: #4cae4c; /* Darker green on hover */
+    background-color: var(--color-primary-dark);
+    border-color: var(--color-primary-dark);
 }
 
-/* Styles for the "Update" button */
 #update-button {
-    background: #f0ad4e; /* Orange background */
-    color: white; /* White text */
-    display: none; /* Hidden by default, shown by JavaScript when editing an item */
+    background-color: var(--color-success); /* Was warning, changing to success for update */
+    border-color: var(--color-success);
+    color: var(--color-white);
+    display: none; /* Keep hidden by default */
 }
-
 #update-button:hover {
-    background: #eea236; /* Darker orange on hover */
+    background-color: var(--color-success-dark);
+    border-color: var(--color-success-dark);
 }
 
-/* Styles for the "Cancel" button */
 #cancel-button {
-    background: #d9534f; /* Red background */
-    color: white; /* White text */
+    background-color: var(--color-secondary);
+    border-color: var(--color-secondary);
+    color: var(--color-white);
 }
-
 #cancel-button:hover {
-    background: #d43f3a; /* Darker red on hover */
+    background-color: var(--color-secondary-dark);
+    border-color: var(--color-secondary-dark);
 }
 
-/* Display Section Styles */
-/* Styles for the filter and sort control containers */
+/* Card action buttons */
+.item-card .action-buttons button {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    font-size: 0.8rem;
+    margin-right: var(--spacing-xs);
+}
+.item-card .edit-btn {
+    background-color: var(--color-warning);
+    border-color: var(--color-warning);
+    color: var(--color-dark); /* Dark text on yellow for contrast */
+}
+.item-card .edit-btn:hover {
+    background-color: var(--color-warning-dark);
+    border-color: var(--color-warning-dark);
+}
+.item-card .delete-btn {
+    background-color: var(--color-danger);
+    border-color: var(--color-danger);
+    color: var(--color-white);
+}
+.item-card .delete-btn:hover {
+    background-color: var(--color-danger-dark);
+    border-color: var(--color-danger-dark);
+}
+
+
+/* === Filter and Sort Controls === */
 #filter-controls,
 #sort-controls {
-    margin-bottom: 1rem; /* Space below the control sections */
-    padding: 0.5rem; /* Padding inside the control sections */
-    background-color: #eee; /* Light grey background for control sections */
-    border-radius: 3px; /* Slightly rounded corners */
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background-color: var(--color-light);
+    border-radius: var(--border-radius-md);
+    display: flex;
+    flex-wrap: wrap; /* Allow controls to wrap on smaller screens */
+    gap: var(--spacing-md);
+    align-items: center;
 }
 
-/* Styles for labels within filter and sort controls */
 #filter-controls label,
 #sort-controls label {
-    margin-right: 0.5rem; /* Space to the right of labels */
+    margin-bottom: 0; /* Override default label margin */
+    margin-right: var(--spacing-xs);
 }
 
-/* Styles for select dropdowns within filter and sort controls */
-/* This targets select elements within both #filter-controls and #sort-controls (as per previous update) */
 #filter-controls select,
 #sort-controls select {
-    padding: 0.3rem; /* Padding inside select dropdowns */
-    margin-right: 1rem; /* Space to the right of select dropdowns */
-    border: 1px solid #ccc; /* Standard border for select elements */
-    border-radius: 3px; /* Slightly rounded corners for select elements */
+    /* Inherits from form select styles, but can be adjusted if needed */
+    min-width: 150px; /* Give selects a minimum width */
+    margin-right: 0; /* Remove default margin from base form elements */
 }
 
-
-/* Item List Styles */
-/* Container for the list of items, using CSS Grid for layout */
+/* === Item List & Cards === */
 #item-list {
-    display: grid; /* Enables CSS Grid layout */
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); /* Responsive grid: creates as many columns as fit, each at least 250px wide */
-    gap: 1rem; /* Space between grid items (item cards) */
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); /* Slightly larger min for cards */
+    gap: var(--spacing-lg);
 }
 
-/* Individual Item Card Styles */
-/* Styles for each item card displayed in the list */
-.item-card { /* This class is added by JavaScript to each item's div */
-    background: #fff; /* White background for cards */
-    border: 1px solid #ddd; /* Light grey border for cards */
-    padding: 1rem; /* Padding inside cards */
-    border-radius: 4px; /* Rounded corners for cards */
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Subtle shadow for a "raised" effect */
-    position: relative; /* Required for absolute positioning of child elements (like the Hanamaru stamp, if it were successfully implemented) */
-}
-
-/* Styles for the h3 (item name) within an item card */
-.item-card h3 {
-    margin-top: 0; /* Removes default top margin from h3 */
-    color: #333; /* Dark grey color for item names */
-}
-
-/* Styles for paragraphs within an item card (used for category, date, status, notes) */
-.item-card p {
-    margin-bottom: 0.5rem; /* Space below paragraphs */
-    font-size: 0.9em; /* Slightly smaller font size for item details */
-}
-
-/* Styles for images within an item card (if images were fully implemented and displayed) */
-.item-card img {
-    max-width: 100%; /* Ensures images don't overflow their container */
-    height: auto; /* Maintains aspect ratio */
-    border-radius: 3px; /* Slightly rounded corners for images */
-    margin-bottom: 0.5rem; /* Space below images */
-}
-
-/* Hanamaru CSS Stamp Styles (Placeholder for if this feature was fully implemented) */
-/* These styles would be for a visual stamp on completed items. */
-/* The feature was attempted but faced implementation issues. */
-/*
-.hanamaru-css-stamp {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 45px;
-    height: 45px;
-    background-color: rgba(255, 255, 255, 0.75);
-    border: 3px solid #ff3860; 
-    border-radius: 50%;
+.item-card {
+    background: var(--color-white);
+    border: 1px solid var(--color-border);
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius-md); /* Consistent with other elements */
+    box-shadow: var(--box-shadow-sm);
+    position: relative;
     display: flex;
-    justify-content: center;
-    align-items: center;
-    font-size: 26px;
-    color: #ff3860;
-    font-weight: bold;
-    z-index: 10;
-    user-select: none;
-    opacity: 0;
-    transform: scale(0.3) rotate(-15deg);
-    transition: opacity 0.3s ease-out, transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    flex-direction: column; /* Content stacks vertically */
+    transition: box-shadow 0.2s ease-in-out;
 }
 
-.item-card.item-completed .hanamaru-css-stamp {
-    opacity: 1;
-    transform: scale(1) rotate(0deg);
+.item-card:hover {
+    box-shadow: var(--box-shadow-md); /* Slightly larger shadow on hover */
 }
+
+.item-card h3 {
+    font-size: 1.25rem;
+    color: var(--color-primary); /* Make item names stand out */
+    margin-top: 0;
+    margin-bottom: var(--spacing-sm);
+}
+
+.item-card p {
+    font-size: 0.9rem;
+    color: var(--color-secondary-dark); /* Slightly darker grey for details */
+    margin-bottom: var(--spacing-xs); /* Less space between detail paragraphs */
+}
+.item-card p strong {
+    color: var(--color-dark); /* Make labels within cards darker */
+}
+
+.item-card .action-buttons {
+    margin-top: auto; /* Push action buttons to the bottom of the card */
+    padding-top: var(--spacing-md); /* Space above buttons */
+    border-top: 1px solid var(--color-border); /* Separator line */
+    display: flex;
+    justify-content: flex-end; /* Align buttons to the right */
+}
+
+
+/* === Image Thumbnail Styles (if implemented) === */
+/* These are placeholders from previous attempts; ensure they align with new design if feature is added */
+.item-thumbnail {
+    max-width: 100%;
+    height: auto;
+    max-height: 180px; /* Slightly larger max height for card images */
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    margin-top: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+    object-fit: cover;
+    align-self: center;
+}
+
+.item-no-image {
+    font-style: italic;
+    color: var(--color-secondary);
+    text-align: center;
+    margin: var(--spacing-md) 0;
+    padding: var(--spacing-md);
+    background-color: var(--color-light);
+    border-radius: var(--border-radius-sm);
+    min-height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#current-image-preview {
+    margin-top: var(--spacing-sm);
+    font-size: 0.9rem;
+    color: var(--color-text);
+}
+
+#current-image-preview img.form-preview-thumbnail { /* More specific selector */
+    max-width: 120px;
+    max-height: 80px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    margin-top: var(--spacing-xs);
+    margin-left: var(--spacing-sm);
+    object-fit: cover;
+    vertical-align: middle;
+    display: inline-block;
+}
+
+
+/* === Responsiveness === */
+
+/* Medium screens and up (tablets, small desktops) */
+@media (min-width: 768px) {
+    main {
+        flex-direction: row; /* Form and display section side-by-side */
+        align-items: flex-start; /* Align items to the top */
+    }
+
+    #input-form-section {
+        flex: 1 1 320px; /* Flex properties: grow, shrink, basis */
+        max-width: 400px; /* Max width for the form section */
+    }
+
+    #display-section {
+        flex: 2 1 500px; /* Display section takes more space */
+    }
+
+    #item-list {
+        /* Adjust grid for more columns if desired, but auto-fill is already good */
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); /* Slightly smaller min for more columns */
+    }
+}
+
+/* Small screens (mobile phones) */
+@media (max-width: 575.98px) {
+    h1 {
+        font-size: 1.75rem;
+    }
+    h2 {
+        font-size: 1.3rem;
+    }
+
+    #filter-controls, #sort-controls {
+        flex-direction: column; /* Stack filter/sort controls */
+        align-items: stretch; /* Make children take full width */
+    }
+    #filter-controls select, #sort-controls select {
+        width: 100%; /* Full width selects on mobile */
+        margin-right: 0;
+        margin-bottom: var(--spacing-sm); /* Space them out when stacked */
+    }
+    #filter-controls label, #sort-controls label {
+        margin-bottom: var(--spacing-xs); /* Space below label when stacked */
+    }
+
+    /* Ensure form buttons stack nicely or have enough space */
+    #item-form div:has(> button) { /* Target div containing buttons */
+        display: flex;
+        flex-direction: column; /* Stack buttons */
+        gap: var(--spacing-sm);
+    }
+    #item-form div:has(> button) button {
+        width: 100%; /* Full width buttons */
+        margin-right: 0;
+    }
+}
+
+/* Placeholder for Hanamaru stamp - this was not successfully implemented */
+/*
+.hanamaru-stamp { ... }
+.hanamaru-stamp-visible { ... }
 */
 
-/* Footer Styles (Currently commented out in HTML) */
-/* Styles for the <footer> element, if used */
+/* Footer (if uncommented in HTML) */
 /*
 footer {
-    text-align: center; 
-    padding: 1rem 0; 
-    background: #333; 
-    color: #fff; 
-    position: fixed; // This would make the footer stick to the bottom
-    bottom: 0;
-    width: 100%;
+    text-align: center;
+    padding: var(--spacing-lg) 0;
+    background-color: var(--color-dark);
+    color: var(--color-light);
+    margin-top: auto; // Pushes footer to bottom if content is short
 }
 */
