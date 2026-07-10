@@ -39,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let items = []; // Array to store all backlog item objects. This is the main data store.
     let currentItemIdBeingEdited = null; // Stores the ID of the item currently being edited, or null if not in edit mode.
-    
+
     // State variables for current filter and sort selections
     let currentFilterCategory = 'すべて'; // Default filter: show all categories
     let currentFilterStatus = 'すべて';   // Default filter: show all statuses
@@ -86,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Helper Function to Switch Form Mode ---
+    // --- Helper Functions ---
 
     /**
      * Manages the UI state of the form (add mode vs. edit mode).
@@ -106,100 +106,103 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Event Listener for "Add" button ---
-    // Handles the submission of a new item.
-    addButton.addEventListener('click', (event) => {
+    /**
+     * Reads and normalizes current form values.
+     * @returns {{name: string, category: string, imageFile: File|undefined, purchaseDate: string, notes: string, status: string}}
+     */
+    function getFormValues() {
+        return {
+            name: nameInput.value.trim(),
+            category: categoryInput.value,
+            imageFile: imageInput.files[0],
+            purchaseDate: purchaseDateInput.value,
+            notes: notesInput.value.trim(),
+            status: statusInput.value
+        };
+    }
+
+    /**
+     * Resets the form after add/update/cancel actions.
+     */
+    function resetForm() {
+        itemForm.reset();
+        imageInput.value = '';
+        setFormMode('add');
+    }
+
+    /**
+     * Adds a label/value row to an item card without using innerHTML for user-controlled values.
+     * @param {HTMLElement} parent - The card element to append to.
+     * @param {string} label - The display label.
+     * @param {string} value - The display value.
+     */
+    function appendDetail(parent, label, value) {
+        const paragraph = document.createElement('p');
+        const strong = document.createElement('strong');
+        strong.textContent = `${label}:`;
+        paragraph.appendChild(strong);
+        paragraph.appendChild(document.createTextNode(` ${value}`));
+        parent.appendChild(paragraph);
+    }
+
+    // --- Form Submit Handling ---
+
+    /**
+     * Handles both adding new items and updating existing items through the form's submit event.
+     * This keeps Enter-key submission and button submission on the same code path.
+     * @param {SubmitEvent} event - The form submit event.
+     */
+    function handleSubmit(event) {
         event.preventDefault(); // Prevent the default form submission behavior (which would cause a page reload)
 
-        // Read values from all input fields
-        const name = nameInput.value.trim(); // Get name and remove leading/trailing whitespace
-        const category = categoryInput.value;
-        const imageFile = imageInput.files[0]; // Get the first selected file (if any)
-        const purchaseDate = purchaseDateInput.value;
-        const notes = notesInput.value.trim();
-        const status = statusInput.value;
+        const { name, category, imageFile, purchaseDate, notes, status } = getFormValues();
 
         // Basic validation: Ensure the name field is not empty
-        if (!name) {
-            alert('名前は必須です。'); // "Name is required." - Alert user
-            return; // Stop further execution
-        }
-
-        // Create a new item object
-        const newItem = {
-            id: Date.now(), // Generate a unique ID using the current timestamp
-            name: name,
-            category: category,
-            imageName: imageFile ? imageFile.name : 'N/A', // Store only the image file name, or 'N/A' if no file
-            purchaseDate: purchaseDate,
-            notes: notes,
-            status: status
-        };
-
-        // Add the new item object to the global `items` array
-        items.push(newItem);
-        saveItemsToLocalStorage(); // Persist the updated items array to LocalStorage
-
-        // Re-render the entire item list to reflect the addition
-        processAndRenderItems(); 
-
-        // Clear the form fields for the next input
-        itemForm.reset(); // Resets all form fields to their default values
-        imageInput.value = ''; // Specifically reset the file input (itemForm.reset() might not always do this reliably)
-        imagePreviewArea.textContent = ''; // Clear the image preview area
-        setFormMode('add'); // Ensure the form is back in 'add' mode
-    });
-
-    // --- Event Listener for "Update" button ---
-    // Handles the submission of updated item details.
-    updateButton.addEventListener('click', (event) => {
-        event.preventDefault(); // Prevent default form submission
-
-        // Check if an item is actually selected for update
-        if (currentItemIdBeingEdited === null) {
-            alert('更新するアイテムが選択されていません。'); // "No item selected for update."
-            return; // Should not happen if UI is managed correctly, but a safeguard
-        }
-
-        // Read updated values from form fields
-        const name = nameInput.value.trim();
-        const category = categoryInput.value;
-        const imageFile = imageInput.files[0];
-        const purchaseDate = purchaseDateInput.value;
-        const notes = notesInput.value.trim();
-        const statusValue = statusInput.value; // Using statusValue to avoid conflict with the 'status' variable in the outer scope (if any)
-
-        // Basic validation for the name
         if (!name) {
             alert('名前は必須です。'); // "Name is required."
             return;
         }
 
-        // Update the item in the `items` array
-        // Map through the items, and if an item's ID matches the one being edited, return a new object with updated properties.
-        items = items.map(item => {
-            if (item.id === currentItemIdBeingEdited) {
-                return {
-                    ...item, // Spread existing item properties to preserve any not being explicitly changed
-                    name: name,
-                    category: category,
-                    // Image handling: If a new image file is selected, use its name. Otherwise, keep the existing imageName.
-                    imageName: imageFile ? imageFile.name : item.imageName,
-                    purchaseDate: purchaseDate,
-                    notes: notes,
-                    status: statusValue
-                };
-            }
-            return item; // Return unchanged items
-        });
-        saveItemsToLocalStorage(); // Persist the updated items array
+        if (currentItemIdBeingEdited === null) {
+            // Create a new item object
+            const newItem = {
+                id: Date.now(), // Generate a unique ID using the current timestamp
+                name: name,
+                category: category,
+                imageName: imageFile ? imageFile.name : 'N/A', // Store only the image file name, or 'N/A' if no file
+                purchaseDate: purchaseDate,
+                notes: notes,
+                status: status
+            };
 
-        // Re-render the list and reset the form
-        processAndRenderItems();
-        itemForm.reset();
-        imageInput.value = '';
-        setFormMode('add'); // Switch form back to 'add' mode
-    });
+            // Add the new item object to the global `items` array
+            items.push(newItem);
+        } else {
+            // Update the item in the `items` array
+            // Map through the items, and if an item's ID matches the one being edited, return a new object with updated properties.
+            items = items.map(item => {
+                if (item.id === currentItemIdBeingEdited) {
+                    return {
+                        ...item, // Spread existing item properties to preserve any not being explicitly changed
+                        name: name,
+                        category: category,
+                        // Image handling: If a new image file is selected, use its name. Otherwise, keep the existing imageName.
+                        imageName: imageFile ? imageFile.name : item.imageName,
+                        purchaseDate: purchaseDate,
+                        notes: notes,
+                        status: status
+                    };
+                }
+                return item; // Return unchanged items
+            });
+        }
+
+        saveItemsToLocalStorage(); // Persist the updated items array to LocalStorage
+        processAndRenderItems(); // Re-render the entire item list to reflect the change
+        resetForm(); // Clear the form fields for the next input
+    }
+
+    itemForm.addEventListener('submit', handleSubmit);
 
 
     // --- Processing and Rendering Items ---
@@ -262,12 +265,14 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function renderItems(itemsToRender) {
         // Clear any existing content from the item list container
-        itemListContainer.innerHTML = '';
+        itemListContainer.textContent = '';
 
         // If there are no items to render (either no items at all, or none match filters),
         // display a message.
         if (itemsToRender.length === 0) {
-            itemListContainer.innerHTML = '<p>該当するアイテムはありません。</p>'; // "No matching items."
+            const emptyMessage = document.createElement('p');
+            emptyMessage.textContent = '該当するアイテムはありません。'; // "No matching items."
+            itemListContainer.appendChild(emptyMessage);
             return; // Exit the function
         }
 
@@ -283,27 +288,16 @@ document.addEventListener('DOMContentLoaded', () => {
             // Item Name (h3)
             const itemNameElement = document.createElement('h3');
             itemNameElement.textContent = item.name;
+            itemCard.appendChild(itemNameElement);
 
-            // Item Category (p)
-            const itemCategoryElement = document.createElement('p');
-            itemCategoryElement.innerHTML = `<strong>カテゴリ:</strong> ${item.category}`; // Using innerHTML to make "カテゴリ:" bold
+            appendDetail(itemCard, 'カテゴリ', item.category);
+            appendDetail(itemCard, '画像', item.imageName || 'N/A');
+            appendDetail(itemCard, '購入日', item.purchaseDate || '未設定');
+            appendDetail(itemCard, 'ステータス', item.status);
 
-            // Item Image Name (p) - Placeholder for actual image display
-            const itemImageElement = document.createElement('p');
-            itemImageElement.innerHTML = `<strong>画像:</strong> ${item.imageName || 'N/A'}`; // Show 'N/A' if imageName is falsy
-
-            // Item Purchase Date (p)
-            const itemPurchaseDateElement = document.createElement('p');
-            itemPurchaseDateElement.innerHTML = `<strong>購入日:</strong> ${item.purchaseDate || '未設定'}`; // "Not set" if no date
-
-            // Item Status (p)
-            const itemStatusElement = document.createElement('p');
-            itemStatusElement.innerHTML = `<strong>ステータス:</strong> ${item.status}`;
-
-            // Item Notes (p) - Only display if notes exist
-            const itemNotesElement = document.createElement('p');
+            // Item Notes - Only display if notes exist
             if (item.notes) {
-                itemNotesElement.innerHTML = `<strong>メモ:</strong> ${item.notes}`;
+                appendDetail(itemCard, 'メモ', item.notes);
             }
 
             // --- Action Buttons (Edit, Delete) for the card ---
@@ -321,10 +315,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 purchaseDateInput.value = item.purchaseDate;
                 notesInput.value = item.notes;
                 statusInput.value = item.status;
-                
+
                 imageInput.value = ''; // Clear file input (cannot pre-fill it for security reasons)
                 imagePreviewArea.textContent = `現在の画像: ${item.imageName || 'なし'}`; // Show current image name
-                
+
                 currentItemIdBeingEdited = item.id; // Set the ID of the item being edited
                 setFormMode('edit'); // Switch the form to 'edit' mode
                 nameInput.focus(); // Focus on the name input field for convenience
@@ -345,8 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // If the item being deleted was also the one currently loaded in the edit form,
                     // reset the form to 'add' mode.
                     if (currentItemIdBeingEdited === item.id) {
-                        itemForm.reset();
-                        setFormMode('add');
+                        resetForm();
                     }
                 }
             });
@@ -355,15 +348,7 @@ document.addEventListener('DOMContentLoaded', () => {
             actionButtonsDiv.appendChild(editButton);
             actionButtonsDiv.appendChild(deleteButton);
 
-            // Append all created elements to the itemCard
-            itemCard.appendChild(itemNameElement);
-            itemCard.appendChild(itemCategoryElement);
-            itemCard.appendChild(itemImageElement);
-            itemCard.appendChild(itemPurchaseDateElement);
-            itemCard.appendChild(itemStatusElement);
-            if (item.notes) { // Only append notes if they exist
-                itemCard.appendChild(itemNotesElement);
-            }
+            // Append action buttons to the itemCard
             itemCard.appendChild(actionButtonsDiv);
 
             // Hanamaru stamp logic was attempted here but faced issues with the diff tool.
@@ -382,9 +367,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Event Listener for "Cancel" button ---
     // Resets the form and ensures it's in 'add' mode.
     cancelButton.addEventListener('click', () => {
-        itemForm.reset(); // Reset form fields
-        imageInput.value = ''; // Clear file input
-        setFormMode('add'); // Switch to 'add' mode (this also clears `currentItemIdBeingEdited` and image preview)
+        resetForm();
     });
 
 
