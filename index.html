@@ -25,7 +25,7 @@
       <p>本も、ゲームも、プラモも。「いつか」を並べるだけで終わらせない。今日のひとつを選ぼう。</p>
     </section>
 
-    <div id="storage-warning" class="notice" role="alert" hidden></div>
+    <div id="storage-warning" class="notice" role="alert" hidden><span id="storage-warning-message"></span><div class="recovery-actions"><button id="storage-raw-export" class="button button-outline button-small" type="button" hidden>元データを退避</button><button id="storage-import-trigger" class="button button-outline button-small" type="button" hidden>JSONバックアップから復元</button><button id="storage-reload" class="button button-outline button-small" type="button" hidden>最新データを読み直す</button></div></div>
     <section class="focus" aria-labelledby="focus-heading">
       <div class="focus-top"><span class="focus-kicker"><span class="focus-dot" aria-hidden="true"></span> TODAY'S PICK</span><span id="focus-counter" class="focus-counter">まずはひとつから</span></div>
       <div id="focus-content" aria-live="polite">
@@ -34,6 +34,7 @@
       </div>
       <div class="focus-actions">
         <button id="focus-primary" class="button button-bright" type="button">最初の積みを登録</button>
+        <button id="focus-complete" class="button button-on-dark" type="button" hidden>楽しみ終えた ✓</button>
         <button id="focus-next" class="button button-on-dark" type="button" hidden>別の候補を見る <span aria-hidden="true">↗</span></button>
       </div>
     </section>
@@ -42,6 +43,14 @@
       <div><span class="stat-number" id="count-waiting">0</span><span class="stat-label">これから楽しむ</span></div>
       <div><span class="stat-number" id="count-active">0</span><span class="stat-label">楽しんでいる</span></div>
       <div><span class="stat-number" id="count-done">0</span><span class="stat-label">楽しみ終えた</span></div>
+    </section>
+
+    <section class="journal" aria-labelledby="journal-heading">
+      <div class="section-top"><div><span class="eyebrow">HOBBY JOURNAL</span><h2 id="journal-heading">楽しんだ記録</h2></div><span id="journal-total" class="result-count">合計0回</span></div>
+      <div class="journal-grid">
+        <div class="journal-week"><span class="eyebrow">THIS WEEK</span><strong id="week-minutes">0<span>分</span></strong><p>今週、自分の趣味に使った時間。<br>自分で記録した分だけを集計します。</p></div>
+        <div class="journal-recent"><h3>最近の記録</h3><p id="log-empty" class="log-empty">まだ記録がありません。まずは今日のひとつを楽しんでみよう。</p><ol id="log-list" class="log-list"></ol><button id="logs-more" type="button" class="button button-outline button-small" hidden>前の記録も見る</button></div>
+      </div>
     </section>
 
     <section class="collection" aria-labelledby="collection-heading">
@@ -57,7 +66,7 @@
       <div id="empty-state" class="empty-state" hidden><span class="empty-icon" aria-hidden="true">◎</span><h3 id="empty-title">まだアイテムがありません</h3><p id="empty-message">気になっている本や、途中まで遊んだゲームから登録してみましょう。</p><button class="button button-primary" id="empty-add" type="button">最初のひとつを追加</button></div>
     </section>
 
-    <details class="data-details"><summary>データのバックアップ・復元 <span aria-hidden="true">⌄</span></summary><div class="data-body"><p>内容はこのブラウザにのみ保存されます。端末変更やブラウザのデータ消去に備えて、JSONファイルを保存してください。</p><div class="data-buttons"><button class="button button-outline" type="button" id="export">JSONを書き出す</button><button class="button button-outline" type="button" id="import-trigger">JSONから復元</button><input id="import-file" type="file" accept="application/json,.json" hidden></div><p class="smallprint">読み込みは現在のデータを置き換えます。写真・アカウント同期はこのMVPの対象外です。</p></div></details>
+    <details class="data-details"><summary>データのバックアップ・復元 <span aria-hidden="true">⌄</span></summary><div class="data-body"><p>内容はこのブラウザにのみ保存されます。端末変更やブラウザのデータ消去に備えて、JSONファイルを保存してください。</p><div class="data-buttons"><button class="button button-outline" type="button" id="export">JSONを書き出す</button><button class="button button-outline" type="button" id="import-trigger">JSONから復元</button><input id="import-file" type="file" accept="application/json,.json" hidden></div><p class="smallprint">読み込みは現在のデータを置き換えます。写真・アカウント同期はこのMVPの対象外です。積みアイテムを削除しても、過去の趣味ログは残ります。</p></div></details>
   </main>
   <footer class="site-footer shell"><span>タスクリア · 趣味の「いつか」を、今日へ。</span><span>Local-first MVP</span></footer>
 
@@ -65,8 +74,19 @@
     <label class="field">作品名 <span class="required">必須</span><input id="item-name" name="name" required maxlength="120" placeholder="例：買ったままの小説" autofocus></label>
     <div class="form-grid"><label class="field">カテゴリ <select id="item-category"><option>本</option><option>ゲーム</option><option>プラモデル</option><option>その他</option></select></label><label class="field">今の状態 <select id="item-status"><option>未着手</option><option>進行中</option><option>一時中断</option><option>完了</option></select></label></div>
     <label class="field">購入日 <span class="optional">任意</span><input id="item-date" type="date"></label>
+    <label class="field">次にやりたいこと <span class="optional">任意</span><input id="item-next" maxlength="120" placeholder="例：第3章から読む、ボスに再挑戦"></label>
     <label class="field">メモ <span class="optional">任意</span><textarea id="item-notes" rows="3" maxlength="800" placeholder="気になった理由、どこまで進めたかなど"></textarea></label>
     <div class="dialog-actions"><button class="button button-outline" type="button" id="form-cancel">キャンセル</button><button class="button button-primary" type="submit" id="form-save">登録する</button></div>
+  </form></dialog>
+  <dialog id="log-dialog" aria-labelledby="log-dialog-title"><form id="log-form" class="item-form"><div class="dialog-heading"><div><span class="eyebrow">A LITTLE TIME FOR YOU</span><h2 id="log-dialog-title">楽しんだ時間を記録</h2></div><button class="close-button" id="log-close" type="button" aria-label="閉じる">×</button></div>
+    <p class="dialog-description" id="log-item-title"></p>
+    <label class="field">楽しんだ時間（分）<input id="log-minutes" type="number" inputmode="numeric" min="1" max="600" step="1" value="15" required></label>
+    <div class="minutes-presets" role="group" aria-label="時間を簡単に選ぶ"><button type="button" data-minutes="5">5分</button><button type="button" data-minutes="15">15分</button><button type="button" data-minutes="30">30分</button><button type="button" data-minutes="60">60分</button></div>
+    <label class="field">楽しんだ日 <input id="log-date" type="date" required></label>
+    <label class="field">ひとことメモ <span class="optional">任意</span><textarea id="log-note" rows="2" maxlength="200" placeholder="読んだところ、遊んだこと、気づいたこと"></textarea></label>
+    <label class="finish-check"><input id="log-finish" type="checkbox"> 今回でこの作品を完了にする</label>
+    <p class="smallprint">時間は自動計測ではなく、あなたが入力した値を記録します。</p>
+    <div class="dialog-actions"><button class="button button-outline" id="log-cancel" type="button">キャンセル</button><button class="button button-primary" type="submit">記録を保存</button></div>
   </form></dialog>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </body>
