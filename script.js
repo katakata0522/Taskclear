@@ -1,400 +1,306 @@
-// Wait for the DOM to be fully loaded before running the script
-// This ensures that all HTML elements are available for manipulation.
-document.addEventListener('DOMContentLoaded', () => {
+(() => {
+  'use strict';
+  const KEY = 'taskclear-mvp-v1';
+  const LEGACY_KEY = 'hobbyBacklogItems';
+  const CATEGORIES = ['本', 'ゲーム', 'プラモデル', 'その他'];
+  const STATUSES = ['未着手', '進行中', '一時中断', '完了'];
+  const MAX_ITEMS = 2000;
+  const $ = (id) => document.getElementById(id);
+  const collator = new Intl.Collator('ja');
+  let state = { version: 1, items: [], selectedId: null };
+  let editId = null;
+  let query = '';
+  let filterCategory = 'all';
+  let filterStatus = 'all';
+  let sortBy = 'recent';
+  let storageBlocked = false;
+  let toastTimer = null;
 
-    // --- DOM Element References ---
-    // Getting references to various HTML elements to interact with them later.
-
-    // Form and its input fields
-    const itemForm = document.getElementById('item-form'); // The main form for adding/editing items
-    const nameInput = document.getElementById('name'); // Input for item's name
-    const categoryInput = document.getElementById('category'); // Select for item's category
-    const imageInput = document.getElementById('image'); // Input for item's image (file)
-    const purchaseDateInput = document.getElementById('purchase-date'); // Input for item's purchase date
-    const notesInput = document.getElementById('notes'); // Textarea for item's notes
-    const statusInput = document.getElementById('status'); // Select for item's status
-
-    // Action buttons in the form
-    const addButton = document.getElementById('add-button'); // Button to add a new item
-    const updateButton = document.getElementById('update-button'); // Button to update an existing item (initially hidden)
-    const cancelButton = document.getElementById('cancel-button'); // Button to cancel form actions
-
-    // Item display area
-    const itemListContainer = document.getElementById('item-list'); // Container where item cards are displayed
-
-    // Dynamically created element to show the name of the current image file during editing
-    const imagePreviewArea = document.createElement('p');
-    imagePreviewArea.id = 'current-image-preview'; // Assign an ID for potential styling or specific selection
-    // Insert the preview area after the image input field in the form
-    imageInput.parentNode.insertBefore(imagePreviewArea, imageInput.nextSibling);
-
-    // Filter and Sort controls in the display section
-    const filterCategoryInput = document.getElementById('filter-category'); // Select for filtering by category
-    const filterStatusInput = document.getElementById('filter-status'); // Select for filtering by status
-    const sortByInput = document.getElementById('sort-by'); // Select for choosing sort order
-
-
-    // --- Data Storage & State ---
-    // Variables to manage the application's data and current UI state.
-
-    let items = []; // Array to store all backlog item objects. This is the main data store.
-    let currentItemIdBeingEdited = null; // Stores the ID of the item currently being edited, or null if not in edit mode.
-
-    // State variables for current filter and sort selections
-    let currentFilterCategory = 'すべて'; // Default filter: show all categories
-    let currentFilterStatus = 'すべて';   // Default filter: show all statuses
-    let currentSortOrder = 'date-desc'; // Default sort order: Purchase Date (Newest First)
-
-    // Key for LocalStorage to persist item data across browser sessions
-    const LOCAL_STORAGE_KEY = 'hobbyBacklogItems';
-
-    // --- LocalStorage Functions ---
-
-    /**
-     * Saves the current `items` array to LocalStorage.
-     * Data is stored as a JSON string.
-     * Includes error handling for potential storage issues.
-     */
-    function saveItemsToLocalStorage() {
-        try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items));
-        } catch (error) {
-            console.error("Error saving items to LocalStorage:", error);
-            // Optionally, could inform the user that settings couldn't be saved (e.g., if storage is full).
-        }
+  function newId() {
+    return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+  const clipped = (value, length) => typeof value === 'string' ? value.trim().slice(0, length) : '';
+  function cleanItem(raw, seen) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    const name = clipped(raw.name, 120);
+    if (!name) return null;
+    let id = typeof raw.id === 'string' || typeof raw.id === 'number' ? String(raw.id) : newId();
+    if (!id || seen.has(id)) id = newId();
+    seen.add(id);
+    const validDate = typeof raw.purchaseDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.purchaseDate) && (() => { const [y, m, d] = raw.purchaseDate.split('-').map(Number); const date = new Date(Date.UTC(y, m - 1, d)); return date.getUTCFullYear() === y && date.getUTCMonth() + 1 === m && date.getUTCDate() === d; })();
+    return {
+      id,
+      name,
+      category: CATEGORIES.includes(raw.category) ? raw.category : 'その他',
+      status: STATUSES.includes(raw.status) ? raw.status : '未着手',
+      notes: clipped(raw.notes, 800),
+      purchaseDate: validDate ? raw.purchaseDate : '',
+      createdAt: Number.isFinite(raw.createdAt) && raw.createdAt > 0 ? raw.createdAt : (Number.isFinite(Number(raw.id)) && Number(raw.id) > 0 ? Number(raw.id) : Date.now()),
+    };
+  }
+  function normalize(raw) {
+    const list = Array.isArray(raw) ? raw : raw && raw.items;
+    if (!Array.isArray(list) || list.length > MAX_ITEMS) throw new Error('データ形式または件数が正しくありません。');
+    const seen = new Set();
+    const items = list.map((entry) => cleanItem(entry, seen));
+    if (items.some((item) => item === null)) throw new Error('作品名のない不正なレコードが含まれています。');
+    const selectedId = raw && !Array.isArray(raw) && raw.selectedId != null ? String(raw.selectedId) : null;
+    return { version: 1, items, selectedId: items.some((item) => item.id === selectedId && item.status !== '完了') ? selectedId : null };
+  }
+  function showWarning(message) {
+    $('storage-warning').textContent = message;
+    $('storage-warning').hidden = false;
+  }
+  function notify(message) {
+    const el = $('toast');
+    el.textContent = message;
+    el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 3300);
+  }
+  function load() {
+    try {
+      const current = localStorage.getItem(KEY);
+      if (current !== null) { state = normalize(JSON.parse(current)); return; }
+      const legacy = localStorage.getItem(LEGACY_KEY);
+      if (legacy !== null) {
+        state = normalize(JSON.parse(legacy));
+        localStorage.setItem(KEY, JSON.stringify(state)); // 旧データは消さずに移行する
+        notify('以前の積みアイテムを引き継ぎました');
+      }
+    } catch (error) {
+      storageBlocked = true;
+      showWarning('保存データを読み込めませんでした。既存データの上書きを防ぐため編集を停止しています。ブラウザの保存データを確認してください。');
+      console.error('Taskclear load failed', error);
     }
-
-    /**
-     * Loads items from LocalStorage when the application starts.
-     * If data exists in LocalStorage, it parses it and populates the `items` array.
-     * If no data exists or an error occurs during parsing, `items` is initialized as an empty array.
-     */
-    function loadItemsFromLocalStorage() {
-        try {
-            const storedItems = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (storedItems) {
-                items = JSON.parse(storedItems);
-                // Note: Item IDs are expected to be numbers (from Date.now()).
-                // Purchase dates are stored as "YYYY-MM-DD" strings, which is suitable for display
-                // and handled by the sorting logic (which converts to Date objects for comparison).
-            } else {
-                items = []; // Initialize as empty if nothing is found in LocalStorage
-            }
-        } catch (error) {
-            console.error("Error loading items from LocalStorage:", error);
-            items = []; // Default to an empty array on error to prevent application crashes
-        }
+  }
+  function commit(items, selectedId) {
+    if (storageBlocked) { notify('保存データを確認するまで編集できません'); return false; }
+    const next = { version: 1, items, selectedId };
+    try { localStorage.setItem(KEY, JSON.stringify(next)); }
+    catch (error) {
+      showWarning('保存に失敗しました。ブラウザの容量・プライベートモードを確認してください。変更は反映していません。');
+      console.error('Taskclear save failed', error);
+      return false;
     }
-
-    // --- Helper Functions ---
-
-    /**
-     * Manages the UI state of the form (add mode vs. edit mode).
-     * Toggles visibility of "Add" and "Update" buttons.
-     * Resets `currentItemIdBeingEdited` and clears the image preview when switching to 'add' mode.
-     * @param {string} mode - The mode to switch to ('add' or 'edit').
-     */
-    function setFormMode(mode) {
-        if (mode === 'edit') {
-            addButton.style.display = 'none'; // Hide "Add" button
-            updateButton.style.display = 'inline-block'; // Show "Update" button
-        } else { // 'add' mode (or any other mode, defaults to add)
-            addButton.style.display = 'inline-block'; // Show "Add" button
-            updateButton.style.display = 'none'; // Hide "Update" button
-            currentItemIdBeingEdited = null; // Clear the ID of the item being edited
-            imagePreviewArea.textContent = ''; // Clear any text from the image preview area
-        }
+    state = next;
+    render();
+    return true;
+  }
+  function candidates() { return state.items.filter((item) => item.status !== '完了'); }
+  function picked() { return candidates().find((item) => item.id === state.selectedId) || candidates().slice().sort((a, b) => a.createdAt - b.createdAt)[0] || null; }
+  function setStatus(id, status) {
+    if (!STATUSES.includes(status)) return;
+    const item = state.items.find((value) => value.id === id);
+    if (!item) return;
+    const items = state.items.map((value) => value.id === id ? { ...value, status } : value);
+    const selection = status === '進行中' ? id : status === '完了' && state.selectedId === id ? null : state.selectedId;
+    if (commit(items, selection)) notify(status === '完了' ? '楽しんだ記録が増えました！' : '状態を更新しました');
+  }
+  function cyclePick() {
+    const available = candidates().slice().sort((a, b) => a.createdAt - b.createdAt);
+    if (!available.length) return;
+    const current = picked();
+    const index = available.findIndex((item) => item.id === current?.id);
+    const next = available[(index + 1) % available.length];
+    commit(state.items, next.id);
+  }
+  function renderFocus() {
+    const item = picked();
+    const total = candidates().length;
+    const content = $('focus-content');
+    content.replaceChildren();
+    const headingEl = document.createElement('h2');
+    headingEl.id = 'focus-heading';
+    const messageEl = document.createElement('p');
+    let label;
+    if (!state.items.length) {
+      label = '今日、何から楽しもう？';
+      messageEl.textContent = '最初のアイテムを登録すると、ここにおすすめが表示されます。';
+    } else if (!item) {
+      label = '全部、楽しみました。';
+      messageEl.textContent = 'おつかれさま！ 新しい趣味ができたら、また登録しましょう。';
+    } else {
+      const meta = document.createElement('div');
+      meta.className = 'focus-meta';
+      meta.textContent = `${item.category}　/　${item.status}`;
+      content.appendChild(meta);
+      label = item.name;
+      messageEl.textContent = item.status === '進行中' ? '続きから、楽しもう。終わったら完了を記録できます。' : '完璧な計画より、ちょっと手をつけるところから。';
     }
-
-    /**
-     * Reads and normalizes current form values.
-     * @returns {{name: string, category: string, imageFile: File|undefined, purchaseDate: string, notes: string, status: string}}
-     */
-    function getFormValues() {
-        return {
-            name: nameInput.value.trim(),
-            category: categoryInput.value,
-            imageFile: imageInput.files[0],
-            purchaseDate: purchaseDateInput.value,
-            notes: notesInput.value.trim(),
-            status: statusInput.value
-        };
+    headingEl.textContent = label;
+    content.append(headingEl, messageEl);
+    $('focus-counter').textContent = total ? `未完了 ${total}件から` : 'まずはひとつから';
+    const primary = $('focus-primary');
+    primary.textContent = !item ? '積みを追加する' : item.status === '進行中' ? '楽しみ終えた ✓' : 'これを始める ↗';
+    primary.dataset.action = !item ? 'add' : item.status === '進行中' ? 'complete' : 'start';
+    primary.dataset.id = item ? item.id : '';
+    $('focus-next').hidden = total < 2;
+  }
+  function renderStats() {
+    $('count-waiting').textContent = state.items.filter((item) => item.status === '未着手' || item.status === '一時中断').length;
+    $('count-active').textContent = state.items.filter((item) => item.status === '進行中').length;
+    $('count-done').textContent = state.items.filter((item) => item.status === '完了').length;
+  }
+  function actionButton(label, action, id, className = '', itemName = '') {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    if (itemName) button.setAttribute('aria-label', `「${itemName}」${label}`);
+    button.dataset.action = action;
+    button.dataset.id = id;
+    if (className) button.className = className;
+    return button;
+  }
+  function renderCards() {
+    const list = $('item-list');
+    list.replaceChildren();
+    const selected = picked()?.id;
+    const visible = state.items.filter((item) => {
+      return (filterCategory === 'all' || item.category === filterCategory) &&
+        (filterStatus === 'all' || item.status === filterStatus) &&
+        (!query || `${item.name} ${item.notes}`.toLocaleLowerCase('ja').includes(query));
+    }).sort((a, b) => sortBy === 'name' ? collator.compare(a.name, b.name) : sortBy === 'oldest' ? a.createdAt - b.createdAt : b.createdAt - a.createdAt);
+    $('result-count').textContent = `${visible.length}件を表示 / 全${state.items.length}件`;
+    $('empty-state').hidden = visible.length !== 0;
+    if (!visible.length) {
+      const noItems = state.items.length === 0;
+      $('empty-title').textContent = noItems ? 'まだアイテムがありません' : '該当するアイテムがありません';
+      $('empty-message').textContent = noItems ? '気になっている本や、途中まで遊んだゲームから登録してみましょう。' : '検索や絞り込みの条件を変えてみてください。';
+      $('empty-add').hidden = !noItems;
+      return;
     }
-
-    /**
-     * Resets the form after add/update/cancel actions.
-     */
-    function resetForm() {
-        itemForm.reset();
-        imageInput.value = '';
-        setFormMode('add');
+    for (const item of visible) {
+      const card = document.createElement('article');
+      card.className = 'item-card' + (selected === item.id && item.status !== '完了' ? ' current' : '');
+      const top = document.createElement('div');
+      top.className = 'item-top';
+      const category = document.createElement('span');
+      category.className = 'item-category';
+      category.textContent = item.category;
+      const status = document.createElement('span');
+      status.className = 'item-status' + (item.status === '進行中' ? ' active' : item.status === '完了' ? ' done' : item.status === '一時中断' ? ' paused' : '');
+      status.textContent = item.status;
+      top.append(category, status);
+      const title = document.createElement('h3');
+      title.textContent = item.name;
+      card.append(top, title);
+      if (item.notes) {
+        const note = document.createElement('p');
+        note.className = 'item-note';
+        note.textContent = item.notes;
+        card.appendChild(note);
+      }
+      if (item.purchaseDate) {
+        const date = document.createElement('p');
+        date.className = 'item-date';
+        date.textContent = `購入日：${item.purchaseDate}`;
+        card.appendChild(date);
+      }
+      const actions = document.createElement('div');
+      actions.className = 'item-actions';
+      if (item.status !== '完了' && selected !== item.id) actions.appendChild(actionButton('今日に選ぶ', 'pick', item.id, 'item-go', item.name));
+      if (item.status !== '進行中') actions.appendChild(actionButton(item.status === '完了' ? 'もう一度' : '始める', 'start', item.id, '', item.name));
+      if (item.status !== '完了') actions.appendChild(actionButton('完了', 'complete', item.id, '', item.name));
+      actions.appendChild(actionButton('編集', 'edit', item.id, '', item.name));
+      actions.appendChild(actionButton('削除', 'delete', item.id, 'item-delete', item.name));
+      card.appendChild(actions);
+      list.appendChild(card);
     }
-
-    /**
-     * Adds a label/value row to an item card without using innerHTML for user-controlled values.
-     * @param {HTMLElement} parent - The card element to append to.
-     * @param {string} label - The display label.
-     * @param {string} value - The display value.
-     */
-    function appendDetail(parent, label, value) {
-        const paragraph = document.createElement('p');
-        const strong = document.createElement('strong');
-        strong.textContent = `${label}:`;
-        paragraph.appendChild(strong);
-        paragraph.appendChild(document.createTextNode(` ${value}`));
-        parent.appendChild(paragraph);
+  }
+  function render() { renderFocus(); renderStats(); renderCards(); }
+  function openForm(item = null) {
+    if (storageBlocked) { notify('保存データを確認するまで編集できません'); return; }
+    editId = item ? item.id : null;
+    $('item-form').reset();
+    $('dialog-title').textContent = item ? '積みを編集する' : '積みを追加する';
+    $('form-save').textContent = item ? '変更を保存' : '登録する';
+    if (item) {
+      $('item-name').value = item.name;
+      $('item-category').value = item.category;
+      $('item-status').value = item.status;
+      $('item-date').value = item.purchaseDate;
+      $('item-notes').value = item.notes;
     }
-
-    // --- Form Submit Handling ---
-
-    /**
-     * Handles both adding new items and updating existing items through the form's submit event.
-     * This keeps Enter-key submission and button submission on the same code path.
-     * @param {SubmitEvent} event - The form submit event.
-     */
-    function handleSubmit(event) {
-        event.preventDefault(); // Prevent the default form submission behavior (which would cause a page reload)
-
-        const { name, category, imageFile, purchaseDate, notes, status } = getFormValues();
-
-        // Basic validation: Ensure the name field is not empty
-        if (!name) {
-            alert('名前は必須です。'); // "Name is required."
-            return;
-        }
-
-        if (currentItemIdBeingEdited === null) {
-            // Create a new item object
-            const newItem = {
-                id: Date.now(), // Generate a unique ID using the current timestamp
-                name: name,
-                category: category,
-                imageName: imageFile ? imageFile.name : 'N/A', // Store only the image file name, or 'N/A' if no file
-                purchaseDate: purchaseDate,
-                notes: notes,
-                status: status
-            };
-
-            // Add the new item object to the global `items` array
-            items.push(newItem);
-        } else {
-            // Update the item in the `items` array
-            // Map through the items, and if an item's ID matches the one being edited, return a new object with updated properties.
-            items = items.map(item => {
-                if (item.id === currentItemIdBeingEdited) {
-                    return {
-                        ...item, // Spread existing item properties to preserve any not being explicitly changed
-                        name: name,
-                        category: category,
-                        // Image handling: If a new image file is selected, use its name. Otherwise, keep the existing imageName.
-                        imageName: imageFile ? imageFile.name : item.imageName,
-                        purchaseDate: purchaseDate,
-                        notes: notes,
-                        status: status
-                    };
-                }
-                return item; // Return unchanged items
-            });
-        }
-
-        saveItemsToLocalStorage(); // Persist the updated items array to LocalStorage
-        processAndRenderItems(); // Re-render the entire item list to reflect the change
-        resetForm(); // Clear the form fields for the next input
+    $('item-dialog').showModal();
+    $('item-name').focus();
+  }
+  function closeForm() { $('item-dialog').close(); editId = null; }
+  function handleAction(action, id) {
+    const item = state.items.find((entry) => entry.id === id);
+    if (!item) return;
+    if (action === 'pick') { if (commit(state.items, id)) notify('今日のひとつに選びました'); return; }
+    if (action === 'start') { setStatus(id, '進行中'); return; }
+    if (action === 'complete') { setStatus(id, '完了'); return; }
+    if (action === 'edit') { openForm(item); return; }
+    if (action === 'delete' && confirm(`「${item.name}」を削除しますか？`)) {
+      const next = state.items.filter((entry) => entry.id !== id);
+      if (commit(next, state.selectedId === id ? null : state.selectedId)) notify('削除しました');
     }
-
-    itemForm.addEventListener('submit', handleSubmit);
-
-
-    // --- Processing and Rendering Items ---
-
-    /**
-     * Central function to process (filter and sort) and then render the items.
-     * This is called whenever the items list needs to be updated on the UI.
-     */
-    function processAndRenderItems() {
-        let processedItems = [...items]; // Create a shallow copy of the items array to avoid modifying the original during processing.
-
-        // 1. Apply Filtering
-        // Filter by category, if a specific category (not "すべて" - All) is selected
-        if (currentFilterCategory !== 'すべて') {
-            processedItems = processedItems.filter(item => item.category === currentFilterCategory);
-        }
-        // Filter by status, if a specific status (not "すべて" - All) is selected
-        // This applies conjunctively with the category filter.
-        if (currentFilterStatus !== 'すべて') {
-            processedItems = processedItems.filter(item => item.status === currentFilterStatus);
-        }
-
-        // 2. Apply Sorting
-        // Sort the `processedItems` array based on the `currentSortOrder`.
-        switch (currentSortOrder) {
-            case 'date-desc': // Purchase Date (Newest First)
-                processedItems.sort((a, b) => {
-                    // Treat missing or invalid dates as very old (0) for descending sort, so they appear at the end.
-                    const dateA = a.purchaseDate ? new Date(a.purchaseDate).getTime() : 0;
-                    const dateB = b.purchaseDate ? new Date(b.purchaseDate).getTime() : 0;
-                    return dateB - dateA; // For descending, subtract A from B
-                });
-                break;
-            case 'date-asc': // Purchase Date (Oldest First)
-                processedItems.sort((a, b) => {
-                    // Treat missing or invalid dates as very new (Infinity) for ascending sort, so they appear at the end.
-                    const dateA = a.purchaseDate ? new Date(a.purchaseDate).getTime() : Infinity;
-                    const dateB = b.purchaseDate ? new Date(b.purchaseDate).getTime() : Infinity;
-                    return dateA - dateB; // For ascending, subtract B from A
-                });
-                break;
-            case 'name-asc': // Name (Ascending, A-Z)
-                // localeCompare is used for string comparison, 'ja' helps with Japanese character sorting.
-                processedItems.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
-                break;
-            case 'name-desc': // Name (Descending, Z-A)
-                processedItems.sort((a, b) => b.name.localeCompare(a.name, 'ja'));
-                break;
-        }
-
-        // 3. Render the processed items
-        renderItems(processedItems);
+  }
+  function exportData() {
+    const data = new Blob([JSON.stringify({ ...state, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(data);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `taskclear-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    notify('バックアップをダウンロードしました');
+  }
+  async function importData(file) {
+    if (!file) return;
+    if (file.size > 8_000_000) { notify('8MB以下のJSONファイルを選んでください'); return; }
+    try {
+      const data = normalize(JSON.parse(await file.text()));
+      if (!confirm(`現在の${state.items.length}件を、ファイル内の${data.items.length}件で置き換えますか？`)) return;
+      if (commit(data.items, data.selectedId)) notify(`${data.items.length}件を復元しました`);
+    } catch (error) {
+      notify('読み込めませんでした。タスクリアのJSONバックアップを指定してください');
+      console.error('Taskclear import failed', error);
     }
-
-
-    /**
-     * Renders the provided array of item objects to the DOM.
-     * Each item is displayed as a "card".
-     * @param {Array<Object>} itemsToRender - The array of item objects to display.
-     */
-    function renderItems(itemsToRender) {
-        // Clear any existing content from the item list container
-        itemListContainer.textContent = '';
-
-        // If there are no items to render (either no items at all, or none match filters),
-        // display a message.
-        if (itemsToRender.length === 0) {
-            const emptyMessage = document.createElement('p');
-            emptyMessage.textContent = '該当するアイテムはありません。'; // "No matching items."
-            itemListContainer.appendChild(emptyMessage);
-            return; // Exit the function
-        }
-
-        // Iterate through the `itemsToRender` array
-        itemsToRender.forEach(item => {
-            // Create the main div for the item card
-            const itemCard = document.createElement('div');
-            itemCard.classList.add('item-card'); // Apply CSS class for styling
-            itemCard.setAttribute('data-id', item.id); // Store item's ID in a data attribute for later access (e.g., for edit/delete)
-
-            // --- Create and append elements for item details ---
-
-            // Item Name (h3)
-            const itemNameElement = document.createElement('h3');
-            itemNameElement.textContent = item.name;
-            itemCard.appendChild(itemNameElement);
-
-            appendDetail(itemCard, 'カテゴリ', item.category);
-            appendDetail(itemCard, '画像', item.imageName || 'N/A');
-            appendDetail(itemCard, '購入日', item.purchaseDate || '未設定');
-            appendDetail(itemCard, 'ステータス', item.status);
-
-            // Item Notes - Only display if notes exist
-            if (item.notes) {
-                appendDetail(itemCard, 'メモ', item.notes);
-            }
-
-            // --- Action Buttons (Edit, Delete) for the card ---
-            const actionButtonsDiv = document.createElement('div');
-            actionButtonsDiv.classList.add('action-buttons'); // For potential styling of the button group
-
-            // Edit Button
-            const editButton = document.createElement('button');
-            editButton.textContent = '編集'; // "Edit"
-            editButton.classList.add('edit-btn'); // Class for styling or specific selection
-            editButton.addEventListener('click', () => {
-                // Populate the main form with the item's details for editing
-                nameInput.value = item.name;
-                categoryInput.value = item.category;
-                purchaseDateInput.value = item.purchaseDate;
-                notesInput.value = item.notes;
-                statusInput.value = item.status;
-
-                imageInput.value = ''; // Clear file input (cannot pre-fill it for security reasons)
-                imagePreviewArea.textContent = `現在の画像: ${item.imageName || 'なし'}`; // Show current image name
-
-                currentItemIdBeingEdited = item.id; // Set the ID of the item being edited
-                setFormMode('edit'); // Switch the form to 'edit' mode
-                nameInput.focus(); // Focus on the name input field for convenience
-            });
-
-            // Delete Button
-            const deleteButton = document.createElement('button');
-            deleteButton.textContent = '削除'; // "Delete"
-            deleteButton.classList.add('delete-btn'); // Class for styling or specific selection
-            deleteButton.addEventListener('click', () => {
-                // Confirm deletion with the user
-                if (confirm(`「${item.name}」を削除してもよろしいですか？`)) { // "Are you sure you want to delete [item name]?"
-                    // Filter out the item to be deleted from the main `items` array
-                    items = items.filter(i => i.id !== item.id);
-                    saveItemsToLocalStorage(); // Persist the change
-                    processAndRenderItems(); // Re-render the list
-
-                    // If the item being deleted was also the one currently loaded in the edit form,
-                    // reset the form to 'add' mode.
-                    if (currentItemIdBeingEdited === item.id) {
-                        resetForm();
-                    }
-                }
-            });
-
-            // Append action buttons to their container
-            actionButtonsDiv.appendChild(editButton);
-            actionButtonsDiv.appendChild(deleteButton);
-
-            // Append action buttons to the itemCard
-            itemCard.appendChild(actionButtonsDiv);
-
-            // Hanamaru stamp logic was attempted here but faced issues with the diff tool.
-            // If it were working, it would involve:
-            // 1. Creating a stamp element: const hanamaruStamp = document.createElement('div');
-            // 2. Adding a class: hanamaruStamp.classList.add('hanamaru-css-stamp');
-            // 3. Setting content: hanamaruStamp.innerHTML = '💮';
-            // 4. Appending to itemCard: itemCard.appendChild(hanamaruStamp);
-            // 5. Toggling a class on itemCard for CSS to show/hide: itemCard.classList.toggle('item-completed', item.status === '完了');
-
-            // Finally, append the fully constructed itemCard to the list container in the DOM
-            itemListContainer.appendChild(itemCard);
-        });
-    }
-
-    // --- Event Listener for "Cancel" button ---
-    // Resets the form and ensures it's in 'add' mode.
-    cancelButton.addEventListener('click', () => {
-        resetForm();
+  }
+  function wireEvents() {
+    ['add-top', 'add-inline', 'empty-add'].forEach((id) => $(id).addEventListener('click', () => openForm()));
+    ['dialog-close', 'form-cancel'].forEach((id) => $(id).addEventListener('click', closeForm));
+    $('item-dialog').addEventListener('click', (event) => { if (event.target === $('item-dialog')) closeForm(); });
+    $('item-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const name = clipped($('item-name').value, 120);
+      if (!name) { $('item-name').focus(); return; }
+      const old = state.items.find((item) => item.id === editId);
+      if (!old && state.items.length >= MAX_ITEMS) { notify('登録上限の2000件に達しています'); return; }
+      const entry = {
+        id: old ? old.id : newId(), name,
+        category: $('item-category').value, status: $('item-status').value,
+        purchaseDate: $('item-date').value, notes: clipped($('item-notes').value, 800),
+        createdAt: old ? old.createdAt : Date.now()
+      };
+      const next = old ? state.items.map((item) => item.id === old.id ? entry : item) : [...state.items, entry];
+      const selectedId = old && entry.status === '完了' && state.selectedId === old.id ? null : state.selectedId;
+      if (commit(next, selectedId)) { closeForm(); notify(old ? '変更を保存しました' : '積みを追加しました'); }
     });
-
-
-    // --- Event Listeners for Filters and Sort ---
-    // These listeners trigger re-processing and re-rendering of the item list
-    // whenever a filter or sort option changes.
-
-    filterCategoryInput.addEventListener('change', (event) => {
-        currentFilterCategory = event.target.value; // Update state variable
-        processAndRenderItems(); // Re-process and render
+    $('focus-primary').addEventListener('click', (event) => {
+      if (event.currentTarget.dataset.action === 'add') openForm();
+      else handleAction(event.currentTarget.dataset.action, event.currentTarget.dataset.id);
     });
-
-    filterStatusInput.addEventListener('change', (event) => {
-        currentFilterStatus = event.target.value; // Update state variable
-        processAndRenderItems(); // Re-process and render
+    $('focus-next').addEventListener('click', cyclePick);
+    $('item-list').addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (button) handleAction(button.dataset.action, button.dataset.id);
     });
-
-    sortByInput.addEventListener('change', (event) => {
-        currentSortOrder = event.target.value; // Update state variable
-        processAndRenderItems(); // Re-process and render
-    });
-
-    // --- Initial Load and Render ---
-    // Actions to perform when the script first runs after DOM is ready.
-
-    loadItemsFromLocalStorage(); // Load any previously saved items from LocalStorage
-    setFormMode('add'); // Ensure the form is initially in 'add' mode
-    processAndRenderItems(); // Perform the initial processing and rendering of items
-
-});
+    $('search').addEventListener('input', (event) => { query = event.target.value.trim().toLocaleLowerCase('ja'); renderCards(); });
+    $('category-filter').addEventListener('change', (event) => { filterCategory = event.target.value; renderCards(); });
+    $('status-filter').addEventListener('change', (event) => { filterStatus = event.target.value; renderCards(); });
+    $('sort').addEventListener('change', (event) => { sortBy = event.target.value; renderCards(); });
+    $('export').addEventListener('click', exportData);
+    $('import-trigger').addEventListener('click', () => $('import-file').click());
+    $('import-file').addEventListener('change', async (event) => { const file = event.target.files?.[0]; await importData(file); event.target.value = ''; });
+  }
+  load();
+  wireEvents();
+  render();
+})();
