@@ -1,3 +1,82 @@
+// --- Pure helpers (also loaded by tests under Node) ---
+
+/**
+ * Normalizes data read from LocalStorage so a broken or older value cannot crash rendering.
+ * Non-array data becomes an empty list; entries that are not objects are dropped;
+ * missing text fields become empty strings. The stored key and field names are unchanged.
+ * @param {unknown} data
+ * @returns {Array<Object>}
+ */
+function normalizeStoredItems(data) {
+    if (!Array.isArray(data)) return [];
+    const text = (value) => (typeof value === 'string' ? value : (value == null ? '' : String(value)));
+    return data
+        .filter(item => item && typeof item === 'object' && !Array.isArray(item))
+        .map(item => ({
+            ...item,
+            name: text(item.name),
+            category: text(item.category),
+            imageName: text(item.imageName),
+            purchaseDate: text(item.purchaseDate),
+            notes: text(item.notes),
+            status: text(item.status)
+        }));
+}
+
+/**
+ * Converts a "YYYY-MM-DD" string to a timestamp, or null when missing/invalid.
+ * @param {string} value
+ * @returns {number|null}
+ */
+function purchaseTime(value) {
+    if (!value) return null;
+    const time = new Date(value).getTime();
+    return Number.isNaN(time) ? null : time;
+}
+
+/**
+ * Returns a new item ID that does not collide with existing ones
+ * (two quick additions within the same millisecond previously got the same ID).
+ * @param {Array<Object>} existing
+ * @param {number} now
+ * @returns {number}
+ */
+function nextItemId(existing, now) {
+    const maxId = existing.reduce((max, item) => (typeof item.id === 'number' && item.id > max ? item.id : max), 0);
+    return now > maxId ? now : maxId + 1;
+}
+
+/**
+ * Sorts a copy of the items by the given order. Missing or invalid dates go last.
+ * @param {Array<Object>} list
+ * @param {string} order
+ * @returns {Array<Object>}
+ */
+function sortItems(list, order) {
+    const sorted = [...list];
+    const name = (item) => String(item.name ?? '');
+    switch (order) {
+        case 'date-desc':
+            sorted.sort((a, b) => (purchaseTime(b.purchaseDate) ?? -Infinity) - (purchaseTime(a.purchaseDate) ?? -Infinity) || 0);
+            break;
+        case 'date-asc':
+            sorted.sort((a, b) => (purchaseTime(a.purchaseDate) ?? Infinity) - (purchaseTime(b.purchaseDate) ?? Infinity) || 0);
+            break;
+        case 'name-asc':
+            sorted.sort((a, b) => name(a).localeCompare(name(b), 'ja'));
+            break;
+        case 'name-desc':
+            sorted.sort((a, b) => name(b).localeCompare(name(a), 'ja'));
+            break;
+    }
+    return sorted;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { normalizeStoredItems, purchaseTime, nextItemId, sortItems };
+}
+
+if (typeof document !== 'undefined') {
 // Wait for the DOM to be fully loaded before running the script
 // This ensures that all HTML elements are available for manipulation.
 document.addEventListener('DOMContentLoaded', () => {
@@ -73,7 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const storedItems = localStorage.getItem(LOCAL_STORAGE_KEY);
             if (storedItems) {
-                items = JSON.parse(storedItems);
+                items = normalizeStoredItems(JSON.parse(storedItems));
                 // Note: Item IDs are expected to be numbers (from Date.now()).
                 // Purchase dates are stored as "YYYY-MM-DD" strings, which is suitable for display
                 // and handled by the sorting logic (which converts to Date objects for comparison).
@@ -166,7 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentItemIdBeingEdited === null) {
             // Create a new item object
             const newItem = {
-                id: Date.now(), // Generate a unique ID using the current timestamp
+                id: nextItemId(items, Date.now()), // Unique ID based on the current timestamp
                 name: name,
                 category: category,
                 imageName: imageFile ? imageFile.name : 'N/A', // Store only the image file name, or 'N/A' if no file
@@ -225,33 +304,8 @@ document.addEventListener('DOMContentLoaded', () => {
             processedItems = processedItems.filter(item => item.status === currentFilterStatus);
         }
 
-        // 2. Apply Sorting
-        // Sort the `processedItems` array based on the `currentSortOrder`.
-        switch (currentSortOrder) {
-            case 'date-desc': // Purchase Date (Newest First)
-                processedItems.sort((a, b) => {
-                    // Treat missing or invalid dates as very old (0) for descending sort, so they appear at the end.
-                    const dateA = a.purchaseDate ? new Date(a.purchaseDate).getTime() : 0;
-                    const dateB = b.purchaseDate ? new Date(b.purchaseDate).getTime() : 0;
-                    return dateB - dateA; // For descending, subtract A from B
-                });
-                break;
-            case 'date-asc': // Purchase Date (Oldest First)
-                processedItems.sort((a, b) => {
-                    // Treat missing or invalid dates as very new (Infinity) for ascending sort, so they appear at the end.
-                    const dateA = a.purchaseDate ? new Date(a.purchaseDate).getTime() : Infinity;
-                    const dateB = b.purchaseDate ? new Date(b.purchaseDate).getTime() : Infinity;
-                    return dateA - dateB; // For ascending, subtract B from A
-                });
-                break;
-            case 'name-asc': // Name (Ascending, A-Z)
-                // localeCompare is used for string comparison, 'ja' helps with Japanese character sorting.
-                processedItems.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
-                break;
-            case 'name-desc': // Name (Descending, Z-A)
-                processedItems.sort((a, b) => b.name.localeCompare(a.name, 'ja'));
-                break;
-        }
+        // 2. Apply Sorting (missing or invalid dates go last)
+        processedItems = sortItems(processedItems, currentSortOrder);
 
         // 3. Render the processed items
         renderItems(processedItems);
@@ -398,3 +452,4 @@ document.addEventListener('DOMContentLoaded', () => {
     processAndRenderItems(); // Perform the initial processing and rendering of items
 
 });
+}
