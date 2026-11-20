@@ -1,455 +1,678 @@
-// --- Pure helpers (also loaded by tests under Node) ---
-
-/**
- * Normalizes data read from LocalStorage so a broken or older value cannot crash rendering.
- * Non-array data becomes an empty list; entries that are not objects are dropped;
- * missing text fields become empty strings. The stored key and field names are unchanged.
- * @param {unknown} data
- * @returns {Array<Object>}
- */
-function normalizeStoredItems(data) {
-    if (!Array.isArray(data)) return [];
-    const text = (value) => (typeof value === 'string' ? value : (value == null ? '' : String(value)));
-    return data
-        .filter(item => item && typeof item === 'object' && !Array.isArray(item))
-        .map(item => ({
-            ...item,
-            name: text(item.name),
-            category: text(item.category),
-            imageName: text(item.imageName),
-            purchaseDate: text(item.purchaseDate),
-            notes: text(item.notes),
-            status: text(item.status)
-        }));
-}
-
-/**
- * Converts a "YYYY-MM-DD" string to a timestamp, or null when missing/invalid.
- * @param {string} value
- * @returns {number|null}
- */
-function purchaseTime(value) {
-    if (!value) return null;
-    const time = new Date(value).getTime();
-    return Number.isNaN(time) ? null : time;
-}
-
-/**
- * Returns a new item ID that does not collide with existing ones
- * (two quick additions within the same millisecond previously got the same ID).
- * @param {Array<Object>} existing
- * @param {number} now
- * @returns {number}
- */
-function nextItemId(existing, now) {
-    const maxId = existing.reduce((max, item) => (typeof item.id === 'number' && item.id > max ? item.id : max), 0);
-    return now > maxId ? now : maxId + 1;
-}
-
-/**
- * Sorts a copy of the items by the given order. Missing or invalid dates go last.
- * @param {Array<Object>} list
- * @param {string} order
- * @returns {Array<Object>}
- */
-function sortItems(list, order) {
-    const sorted = [...list];
-    const name = (item) => String(item.name ?? '');
-    switch (order) {
-        case 'date-desc':
-            sorted.sort((a, b) => (purchaseTime(b.purchaseDate) ?? -Infinity) - (purchaseTime(a.purchaseDate) ?? -Infinity) || 0);
-            break;
-        case 'date-asc':
-            sorted.sort((a, b) => (purchaseTime(a.purchaseDate) ?? Infinity) - (purchaseTime(b.purchaseDate) ?? Infinity) || 0);
-            break;
-        case 'name-asc':
-            sorted.sort((a, b) => name(a).localeCompare(name(b), 'ja'));
-            break;
-        case 'name-desc':
-            sorted.sort((a, b) => name(b).localeCompare(name(a), 'ja'));
-            break;
-    }
-    return sorted;
-}
+// Re-export pure helpers under Node for backward compatibility with tests.
+const logic =
+    typeof module !== 'undefined' && module.exports
+        ? require('./logic.js')
+        : window.BacklogLogic;
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { normalizeStoredItems, purchaseTime, nextItemId, sortItems };
+    module.exports = logic;
 }
 
 if (typeof document !== 'undefined') {
-// Wait for the DOM to be fully loaded before running the script
-// This ensures that all HTML elements are available for manipulation.
-document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', () => {
+        'use strict';
 
-    // --- DOM Element References ---
-    // Getting references to various HTML elements to interact with them later.
+        const {
+            ALL_FILTER,
+            isSafeImageDataUrl,
+            normalizeStoredItems,
+            nextItemId,
+            validateItemInput,
+            processItems
+        } = logic;
 
-    // Form and its input fields
-    const itemForm = document.getElementById('item-form'); // The main form for adding/editing items
-    const nameInput = document.getElementById('name'); // Input for item's name
-    const categoryInput = document.getElementById('category'); // Select for item's category
-    const imageInput = document.getElementById('image'); // Input for item's image (file)
-    const purchaseDateInput = document.getElementById('purchase-date'); // Input for item's purchase date
-    const notesInput = document.getElementById('notes'); // Textarea for item's notes
-    const statusInput = document.getElementById('status'); // Select for item's status
+        // --- DOM Element References ---
+        const inputFormSection = document.getElementById('input-form-section');
+        const formTitle = document.getElementById('form-title');
+        const itemForm = document.getElementById('item-form');
+        const formError = document.getElementById('form-error');
+        const statusMessage = document.getElementById('status-message');
 
-    // Action buttons in the form
-    const addButton = document.getElementById('add-button'); // Button to add a new item
-    const updateButton = document.getElementById('update-button'); // Button to update an existing item (initially hidden)
-    const cancelButton = document.getElementById('cancel-button'); // Button to cancel form actions
+        const nameInput = document.getElementById('name');
+        const categoryInput = document.getElementById('category');
+        const imageInput = document.getElementById('image');
+        const imagePreviewArea = document.getElementById('current-image-preview');
+        const purchaseDateInput = document.getElementById('purchase-date');
+        const notesInput = document.getElementById('notes');
+        const statusInput = document.getElementById('status');
 
-    // Item display area
-    const itemListContainer = document.getElementById('item-list'); // Container where item cards are displayed
+        const addButton = document.getElementById('add-button');
+        const updateButton = document.getElementById('update-button');
+        const cancelButton = document.getElementById('cancel-button');
 
-    // Dynamically created element to show the name of the current image file during editing
-    const imagePreviewArea = document.createElement('p');
-    imagePreviewArea.id = 'current-image-preview'; // Assign an ID for potential styling or specific selection
-    // Insert the preview area after the image input field in the form
-    imageInput.parentNode.insertBefore(imagePreviewArea, imageInput.nextSibling);
+        const filterCategoryInput = document.getElementById('filter-category');
+        const filterStatusInput = document.getElementById('filter-status');
+        const sortByInput = document.getElementById('sort-by');
+        const itemCountElement = document.getElementById('item-count');
+        const resetFiltersButton = document.getElementById('reset-filters-btn');
+        const itemListContainer = document.getElementById('item-list');
 
-    // Filter and Sort controls in the display section
-    const filterCategoryInput = document.getElementById('filter-category'); // Select for filtering by category
-    const filterStatusInput = document.getElementById('filter-status'); // Select for filtering by status
-    const sortByInput = document.getElementById('sort-by'); // Select for choosing sort order
+        const deleteDialog = document.getElementById('delete-dialog');
+        const deleteDialogMessage = document.getElementById('delete-dialog-message');
+        const deleteDialogCancel = document.getElementById('delete-dialog-cancel');
+        const deleteDialogConfirm = document.getElementById('delete-dialog-confirm');
 
+        // --- Application State ---
+        const LOCAL_STORAGE_KEY = 'hobbyBacklogItems';
+        const MAX_THUMBNAIL_DIM = 640;
+        const MAX_IMAGE_DATA_URL_LENGTH = 300_000;
 
-    // --- Data Storage & State ---
-    // Variables to manage the application's data and current UI state.
+        let items = [];
+        let currentItemIdBeingEdited = null;
+        let pendingImageName = '';
+        let pendingImageDataUrl = '';
+        let imageRemovedInEdit = false;
+        let pendingDeleteItemId = null;
+        let lastFocusedBeforeDialog = null;
+        let statusTimer = null;
 
-    let items = []; // Array to store all backlog item objects. This is the main data store.
-    let currentItemIdBeingEdited = null; // Stores the ID of the item currently being edited, or null if not in edit mode.
+        let currentFilterCategory = ALL_FILTER;
+        let currentFilterStatus = ALL_FILTER;
+        let currentSortOrder = 'date-desc';
 
-    // State variables for current filter and sort selections
-    let currentFilterCategory = 'すべて'; // Default filter: show all categories
-    let currentFilterStatus = 'すべて';   // Default filter: show all statuses
-    let currentSortOrder = 'date-desc'; // Default sort order: Purchase Date (Newest First)
+        // --- Status & Validation UI Helpers ---
 
-    // Key for LocalStorage to persist item data across browser sessions
-    const LOCAL_STORAGE_KEY = 'hobbyBacklogItems';
-
-    // --- LocalStorage Functions ---
-
-    /**
-     * Saves the current `items` array to LocalStorage.
-     * Data is stored as a JSON string.
-     * Includes error handling for potential storage issues.
-     */
-    function saveItemsToLocalStorage() {
-        try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items));
-        } catch (error) {
-            console.error("Error saving items to LocalStorage:", error);
-            // Optionally, could inform the user that settings couldn't be saved (e.g., if storage is full).
-        }
-    }
-
-    /**
-     * Loads items from LocalStorage when the application starts.
-     * If data exists in LocalStorage, it parses it and populates the `items` array.
-     * If no data exists or an error occurs during parsing, `items` is initialized as an empty array.
-     */
-    function loadItemsFromLocalStorage() {
-        try {
-            const storedItems = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (storedItems) {
-                items = normalizeStoredItems(JSON.parse(storedItems));
-                // Note: Item IDs are expected to be numbers (from Date.now()).
-                // Purchase dates are stored as "YYYY-MM-DD" strings, which is suitable for display
-                // and handled by the sorting logic (which converts to Date objects for comparison).
-            } else {
-                items = []; // Initialize as empty if nothing is found in LocalStorage
+        function showStatusMessage(message, { isError = false, duration = 4000 } = {}) {
+            if (statusTimer) {
+                clearTimeout(statusTimer);
+                statusTimer = null;
             }
-        } catch (error) {
-            console.error("Error loading items from LocalStorage:", error);
-            items = []; // Default to an empty array on error to prevent application crashes
-        }
-    }
+            statusMessage.textContent = message;
+            statusMessage.classList.toggle('is-error', isError);
+            statusMessage.hidden = false;
 
-    // --- Helper Functions ---
-
-    /**
-     * Manages the UI state of the form (add mode vs. edit mode).
-     * Toggles visibility of "Add" and "Update" buttons.
-     * Resets `currentItemIdBeingEdited` and clears the image preview when switching to 'add' mode.
-     * @param {string} mode - The mode to switch to ('add' or 'edit').
-     */
-    function setFormMode(mode) {
-        if (mode === 'edit') {
-            addButton.style.display = 'none'; // Hide "Add" button
-            updateButton.style.display = 'inline-block'; // Show "Update" button
-        } else { // 'add' mode (or any other mode, defaults to add)
-            addButton.style.display = 'inline-block'; // Show "Add" button
-            updateButton.style.display = 'none'; // Hide "Update" button
-            currentItemIdBeingEdited = null; // Clear the ID of the item being edited
-            imagePreviewArea.textContent = ''; // Clear any text from the image preview area
-        }
-    }
-
-    /**
-     * Reads and normalizes current form values.
-     * @returns {{name: string, category: string, imageFile: File|undefined, purchaseDate: string, notes: string, status: string}}
-     */
-    function getFormValues() {
-        return {
-            name: nameInput.value.trim(),
-            category: categoryInput.value,
-            imageFile: imageInput.files[0],
-            purchaseDate: purchaseDateInput.value,
-            notes: notesInput.value.trim(),
-            status: statusInput.value
-        };
-    }
-
-    /**
-     * Resets the form after add/update/cancel actions.
-     */
-    function resetForm() {
-        itemForm.reset();
-        imageInput.value = '';
-        setFormMode('add');
-    }
-
-    /**
-     * Adds a label/value row to an item card without using innerHTML for user-controlled values.
-     * @param {HTMLElement} parent - The card element to append to.
-     * @param {string} label - The display label.
-     * @param {string} value - The display value.
-     */
-    function appendDetail(parent, label, value) {
-        const paragraph = document.createElement('p');
-        const strong = document.createElement('strong');
-        strong.textContent = `${label}:`;
-        paragraph.appendChild(strong);
-        paragraph.appendChild(document.createTextNode(` ${value}`));
-        parent.appendChild(paragraph);
-    }
-
-    // --- Form Submit Handling ---
-
-    /**
-     * Handles both adding new items and updating existing items through the form's submit event.
-     * This keeps Enter-key submission and button submission on the same code path.
-     * @param {SubmitEvent} event - The form submit event.
-     */
-    function handleSubmit(event) {
-        event.preventDefault(); // Prevent the default form submission behavior (which would cause a page reload)
-
-        const { name, category, imageFile, purchaseDate, notes, status } = getFormValues();
-
-        // Basic validation: Ensure the name field is not empty
-        if (!name) {
-            alert('名前は必須です。'); // "Name is required."
-            return;
+            if (duration > 0) {
+                statusTimer = setTimeout(() => {
+                    statusMessage.hidden = true;
+                    statusTimer = null;
+                }, duration);
+            }
         }
 
-        if (currentItemIdBeingEdited === null) {
-            // Create a new item object
-            const newItem = {
-                id: nextItemId(items, Date.now()), // Unique ID based on the current timestamp
-                name: name,
-                category: category,
-                imageName: imageFile ? imageFile.name : 'N/A', // Store only the image file name, or 'N/A' if no file
-                purchaseDate: purchaseDate,
-                notes: notes,
-                status: status
-            };
+        function showFormError(message, focusEl) {
+            formError.textContent = message;
+            formError.hidden = false;
+            if (focusEl) {
+                focusEl.setAttribute('aria-invalid', 'true');
+                focusEl.setAttribute('aria-describedby', 'form-error');
+                focusEl.focus();
+            }
+        }
 
-            // Add the new item object to the global `items` array
-            items.push(newItem);
-        } else {
-            // Update the item in the `items` array
-            // Map through the items, and if an item's ID matches the one being edited, return a new object with updated properties.
-            items = items.map(item => {
-                if (item.id === currentItemIdBeingEdited) {
-                    return {
-                        ...item, // Spread existing item properties to preserve any not being explicitly changed
-                        name: name,
-                        category: category,
-                        // Image handling: If a new image file is selected, use its name. Otherwise, keep the existing imageName.
-                        imageName: imageFile ? imageFile.name : item.imageName,
-                        purchaseDate: purchaseDate,
-                        notes: notes,
-                        status: status
-                    };
+        function clearFormError() {
+            formError.textContent = '';
+            formError.hidden = true;
+            nameInput.removeAttribute('aria-invalid');
+            nameInput.removeAttribute('aria-describedby');
+            purchaseDateInput.removeAttribute('aria-invalid');
+            purchaseDateInput.removeAttribute('aria-describedby');
+        }
+
+        // --- LocalStorage Helpers ---
+
+        function saveItemsToLocalStorage() {
+            try {
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(items));
+                return true;
+            } catch (error) {
+                console.error('Error saving items to LocalStorage:', error);
+                return false;
+            }
+        }
+
+        function loadItemsFromLocalStorage() {
+            try {
+                const storedItems = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (!storedItems) {
+                    items = [];
+                    return;
                 }
-                return item; // Return unchanged items
+                items = normalizeStoredItems(JSON.parse(storedItems));
+            } catch (error) {
+                console.error('Error loading items from LocalStorage:', error);
+                items = [];
+                showStatusMessage('保存データの読み込みに失敗したため、空の状態で開始しました。', { isError: true });
+            }
+        }
+
+        // --- Image Reading & Compression ---
+
+        /**
+         * Reads an uploaded image File and downscales it on a Canvas into a compact data URL.
+         * @param {File} file
+         * @returns {Promise<string>}
+         */
+        function readAndCompressImage(file) {
+            return new Promise((resolve) => {
+                if (!file || !file.type.startsWith('image/')) {
+                    resolve('');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onerror = () => resolve('');
+                reader.onload = () => {
+                    const rawDataUrl = typeof reader.result === 'string' ? reader.result : '';
+                    if (!rawDataUrl) {
+                        resolve('');
+                        return;
+                    }
+                    const img = new Image();
+                    img.onerror = () => {
+                        resolve(isSafeImageDataUrl(rawDataUrl) && rawDataUrl.length <= MAX_IMAGE_DATA_URL_LENGTH ? rawDataUrl : '');
+                    };
+                    img.onload = () => {
+                        try {
+                            const scale = Math.min(1, MAX_THUMBNAIL_DIM / Math.max(img.width || 1, img.height || 1));
+                            const width = Math.max(1, Math.round(img.width * scale));
+                            const height = Math.max(1, Math.round(img.height * scale));
+                            const canvas = document.createElement('canvas');
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            if (!ctx) {
+                                resolve(isSafeImageDataUrl(rawDataUrl) && rawDataUrl.length <= MAX_IMAGE_DATA_URL_LENGTH ? rawDataUrl : '');
+                                return;
+                            }
+                            if (file.type === 'image/png') {
+                                ctx.drawImage(img, 0, 0, width, height);
+                                const pngUrl = canvas.toDataURL('image/png');
+                                if (isSafeImageDataUrl(pngUrl) && pngUrl.length <= MAX_IMAGE_DATA_URL_LENGTH) {
+                                    resolve(pngUrl);
+                                    return;
+                                }
+                                ctx.clearRect(0, 0, width, height);
+                            }
+                            ctx.fillStyle = '#ffffff';
+                            ctx.fillRect(0, 0, width, height);
+                            ctx.drawImage(img, 0, 0, width, height);
+                            const compressed = canvas.toDataURL('image/jpeg', 0.78);
+                            if (isSafeImageDataUrl(compressed) && compressed.length <= MAX_IMAGE_DATA_URL_LENGTH) {
+                                resolve(compressed);
+                            } else {
+                                resolve('');
+                            }
+                        } catch {
+                            resolve('');
+                        }
+                    };
+                    img.src = rawDataUrl;
+                };
+                reader.readAsDataURL(file);
             });
         }
 
-        saveItemsToLocalStorage(); // Persist the updated items array to LocalStorage
-        processAndRenderItems(); // Re-render the entire item list to reflect the change
-        resetForm(); // Clear the form fields for the next input
-    }
+        function renderImagePreview(imageName, imageDataUrl) {
+            imagePreviewArea.textContent = '';
+            if (!imageName && !imageDataUrl) {
+                imagePreviewArea.hidden = true;
+                return;
+            }
 
-    itemForm.addEventListener('submit', handleSubmit);
+            const info = document.createElement('div');
+            info.className = 'image-preview-info';
 
+            if (isSafeImageDataUrl(imageDataUrl)) {
+                const thumb = document.createElement('img');
+                thumb.className = 'form-preview-thumbnail';
+                thumb.src = imageDataUrl;
+                thumb.alt = imageName ? `${imageName}のプレビュー` : '選択中の画像プレビュー';
+                info.appendChild(thumb);
+            }
 
-    // --- Processing and Rendering Items ---
+            const label = document.createElement('span');
+            label.className = 'image-preview-name';
+            label.textContent = imageName ? `画像: ${imageName}` : '選択中の画像';
+            info.appendChild(label);
 
-    /**
-     * Central function to process (filter and sort) and then render the items.
-     * This is called whenever the items list needs to be updated on the UI.
-     */
-    function processAndRenderItems() {
-        let processedItems = [...items]; // Create a shallow copy of the items array to avoid modifying the original during processing.
+            const clearBtn = document.createElement('button');
+            clearBtn.type = 'button';
+            clearBtn.className = 'btn btn-link btn-sm';
+            clearBtn.textContent = '画像を削除';
+            clearBtn.addEventListener('click', () => {
+                imageInput.value = '';
+                pendingImageName = '';
+                pendingImageDataUrl = '';
+                imageRemovedInEdit = true;
+                renderImagePreview('', '');
+            });
 
-        // 1. Apply Filtering
-        // Filter by category, if a specific category (not "すべて" - All) is selected
-        if (currentFilterCategory !== 'すべて') {
-            processedItems = processedItems.filter(item => item.category === currentFilterCategory);
-        }
-        // Filter by status, if a specific status (not "すべて" - All) is selected
-        // This applies conjunctively with the category filter.
-        if (currentFilterStatus !== 'すべて') {
-            processedItems = processedItems.filter(item => item.status === currentFilterStatus);
-        }
-
-        // 2. Apply Sorting (missing or invalid dates go last)
-        processedItems = sortItems(processedItems, currentSortOrder);
-
-        // 3. Render the processed items
-        renderItems(processedItems);
-    }
-
-
-    /**
-     * Renders the provided array of item objects to the DOM.
-     * Each item is displayed as a "card".
-     * @param {Array<Object>} itemsToRender - The array of item objects to display.
-     */
-    function renderItems(itemsToRender) {
-        // Clear any existing content from the item list container
-        itemListContainer.textContent = '';
-
-        // If there are no items to render (either no items at all, or none match filters),
-        // display a message.
-        if (itemsToRender.length === 0) {
-            const emptyMessage = document.createElement('p');
-            emptyMessage.textContent = '該当するアイテムはありません。'; // "No matching items."
-            itemListContainer.appendChild(emptyMessage);
-            return; // Exit the function
+            imagePreviewArea.appendChild(info);
+            imagePreviewArea.appendChild(clearBtn);
+            imagePreviewArea.hidden = false;
         }
 
-        // Iterate through the `itemsToRender` array
-        itemsToRender.forEach(item => {
-            // Create the main div for the item card
-            const itemCard = document.createElement('div');
-            itemCard.classList.add('item-card'); // Apply CSS class for styling
-            itemCard.setAttribute('data-id', item.id); // Store item's ID in a data attribute for later access (e.g., for edit/delete)
+        // --- Form State Management ---
 
-            // --- Create and append elements for item details ---
+        function setFormMode(mode) {
+            const isEdit = mode === 'edit';
+            addButton.hidden = isEdit;
+            updateButton.hidden = !isEdit;
+            inputFormSection.classList.toggle('is-editing', isEdit);
+            formTitle.textContent = isEdit ? 'アイテム編集' : 'アイテム入力';
 
-            // Item Name (h3)
+            if (!isEdit) {
+                currentItemIdBeingEdited = null;
+                pendingImageName = '';
+                pendingImageDataUrl = '';
+                imageRemovedInEdit = false;
+                renderImagePreview('', '');
+            }
+        }
+
+        function resetForm() {
+            itemForm.reset();
+            imageInput.value = '';
+            clearFormError();
+            setFormMode('add');
+            processAndRenderItems();
+        }
+
+        function getFormValues() {
+            return {
+                name: nameInput.value.trim(),
+                category: categoryInput.value,
+                purchaseDate: purchaseDateInput.value.trim(),
+                notes: notesInput.value.trim(),
+                status: statusInput.value
+            };
+        }
+
+        // --- Form Submission ---
+
+        async function handleSubmit(event) {
+            event.preventDefault();
+            clearFormError();
+
+            const values = getFormValues();
+            const validation = validateItemInput(values);
+            if (!validation.valid) {
+                const targetInput = validation.field === 'purchaseDate' ? purchaseDateInput : nameInput;
+                showFormError(validation.error, targetInput);
+                return;
+            }
+
+            const selectedFile = imageInput.files && imageInput.files[0];
+            let nextImageName = pendingImageName;
+            let nextImageDataUrl = pendingImageDataUrl;
+
+            if (selectedFile) {
+                nextImageName = selectedFile.name;
+                if (!nextImageDataUrl) {
+                    nextImageDataUrl = await readAndCompressImage(selectedFile);
+                }
+            }
+
+            let targetId = currentItemIdBeingEdited;
+            let actionLabel = '';
+
+            if (currentItemIdBeingEdited === null) {
+                const newItem = {
+                    id: nextItemId(items, Date.now()),
+                    name: values.name,
+                    category: values.category,
+                    imageName: nextImageName,
+                    imageDataUrl: nextImageDataUrl,
+                    purchaseDate: values.purchaseDate,
+                    notes: values.notes,
+                    status: values.status
+                };
+                targetId = newItem.id;
+                items.push(newItem);
+                actionLabel = `「${values.name}」を追加しました。`;
+            } else {
+                items = items.map((item) => {
+                    if (item.id !== currentItemIdBeingEdited) return item;
+                    const resolvedImageName = selectedFile
+                        ? nextImageName
+                        : (imageRemovedInEdit ? '' : item.imageName);
+                    const resolvedImageDataUrl = selectedFile
+                        ? nextImageDataUrl
+                        : (imageRemovedInEdit ? '' : item.imageDataUrl);
+                    return {
+                        ...item,
+                        name: values.name,
+                        category: values.category,
+                        imageName: resolvedImageName,
+                        imageDataUrl: resolvedImageDataUrl,
+                        purchaseDate: values.purchaseDate,
+                        notes: values.notes,
+                        status: values.status
+                    };
+                });
+                actionLabel = `「${values.name}」を更新しました。`;
+            }
+
+            let saved = saveItemsToLocalStorage();
+            if (!saved && nextImageDataUrl) {
+                // Fallback when LocalStorage quota is exceeded by image data: keep item metadata without thumbnail
+                items = items.map((item) => (item.id === targetId ? { ...item, imageDataUrl: '' } : item));
+                saved = saveItemsToLocalStorage();
+                if (saved) {
+                    showStatusMessage(`${actionLabel}（保存容量の上限のため画像プレビューは省略されました）`, { isError: true, duration: 6000 });
+                }
+            }
+
+            if (!saved) {
+                showStatusMessage('データの保存に失敗しました。ブラウザの保存容量を確認してください。', { isError: true, duration: 6000 });
+            } else {
+                const hiddenByFilter =
+                    (currentFilterCategory !== ALL_FILTER && values.category !== currentFilterCategory) ||
+                    (currentFilterStatus !== ALL_FILTER && values.status !== currentFilterStatus);
+                if (!statusMessage.classList.contains('is-error') || statusMessage.hidden) {
+                    const suffix = hiddenByFilter ? '（現在のフィルタ条件により非表示です）' : '';
+                    showStatusMessage(`${actionLabel}${suffix}`);
+                }
+            }
+
+            resetForm();
+        }
+
+        // --- Rendering ---
+
+        function appendDetail(parent, label, value, extraClass) {
+            const paragraph = document.createElement('p');
+            if (extraClass) {
+                paragraph.className = extraClass;
+            }
+            const strong = document.createElement('strong');
+            strong.textContent = `${label}: `;
+            paragraph.appendChild(strong);
+            paragraph.appendChild(document.createTextNode(value));
+            parent.appendChild(paragraph);
+        }
+
+        function updateSummary(visibleCount, totalCount) {
+            const hasActiveFilter =
+                currentFilterCategory !== ALL_FILTER || currentFilterStatus !== ALL_FILTER;
+            itemCountElement.textContent = hasActiveFilter
+                ? `表示中: ${visibleCount}件 / 全${totalCount}件`
+                : `全${totalCount}件`;
+            resetFiltersButton.hidden = !hasActiveFilter;
+        }
+
+        function createItemCard(item) {
+            const itemCard = document.createElement('article');
+            itemCard.className = 'item-card';
+            itemCard.dataset.id = String(item.id);
+            if (item.id === currentItemIdBeingEdited) {
+                itemCard.classList.add('is-editing-target');
+            }
+
+            const header = document.createElement('div');
+            header.className = 'item-card-header';
+
             const itemNameElement = document.createElement('h3');
             itemNameElement.textContent = item.name;
-            itemCard.appendChild(itemNameElement);
+            header.appendChild(itemNameElement);
 
-            appendDetail(itemCard, 'カテゴリ', item.category);
-            appendDetail(itemCard, '画像', item.imageName || 'N/A');
-            appendDetail(itemCard, '購入日', item.purchaseDate || '未設定');
-            appendDetail(itemCard, 'ステータス', item.status);
+            const statusBadge = document.createElement('span');
+            statusBadge.className = 'status-badge';
+            statusBadge.dataset.status = item.status;
+            statusBadge.textContent = item.status;
+            header.appendChild(statusBadge);
 
-            // Item Notes - Only display if notes exist
-            if (item.notes) {
-                appendDetail(itemCard, 'メモ', item.notes);
+            itemCard.appendChild(header);
+
+            if (isSafeImageDataUrl(item.imageDataUrl)) {
+                const thumb = document.createElement('img');
+                thumb.className = 'item-thumbnail';
+                thumb.src = item.imageDataUrl;
+                thumb.alt = `${item.name}の画像`;
+                thumb.loading = 'lazy';
+                itemCard.appendChild(thumb);
             }
 
-            // --- Action Buttons (Edit, Delete) for the card ---
+            const details = document.createElement('div');
+            details.className = 'item-details';
+
+            appendDetail(details, 'カテゴリ', item.category);
+            if (item.imageName && !isSafeImageDataUrl(item.imageDataUrl)) {
+                appendDetail(details, '画像', item.imageName);
+            }
+            appendDetail(details, '購入日', item.purchaseDate || '未設定');
+            appendDetail(details, 'ステータス', item.status);
+            if (item.notes) {
+                appendDetail(details, 'メモ', item.notes, 'item-notes');
+            }
+
+            itemCard.appendChild(details);
+
             const actionButtonsDiv = document.createElement('div');
-            actionButtonsDiv.classList.add('action-buttons'); // For potential styling of the button group
+            actionButtonsDiv.className = 'action-buttons';
 
-            // Edit Button
             const editButton = document.createElement('button');
-            editButton.textContent = '編集'; // "Edit"
-            editButton.classList.add('edit-btn'); // Class for styling or specific selection
-            editButton.addEventListener('click', () => {
-                // Populate the main form with the item's details for editing
-                nameInput.value = item.name;
-                categoryInput.value = item.category;
-                purchaseDateInput.value = item.purchaseDate;
-                notesInput.value = item.notes;
-                statusInput.value = item.status;
+            editButton.type = 'button';
+            editButton.textContent = '編集';
+            editButton.className = 'btn btn-sm edit-btn';
+            editButton.dataset.action = 'edit';
+            editButton.setAttribute('aria-label', `「${item.name}」を編集`);
 
-                imageInput.value = ''; // Clear file input (cannot pre-fill it for security reasons)
-                imagePreviewArea.textContent = `現在の画像: ${item.imageName || 'なし'}`; // Show current image name
-
-                currentItemIdBeingEdited = item.id; // Set the ID of the item being edited
-                setFormMode('edit'); // Switch the form to 'edit' mode
-                nameInput.focus(); // Focus on the name input field for convenience
-            });
-
-            // Delete Button
             const deleteButton = document.createElement('button');
-            deleteButton.textContent = '削除'; // "Delete"
-            deleteButton.classList.add('delete-btn'); // Class for styling or specific selection
-            deleteButton.addEventListener('click', () => {
-                // Confirm deletion with the user
-                if (confirm(`「${item.name}」を削除してもよろしいですか？`)) { // "Are you sure you want to delete [item name]?"
-                    // Filter out the item to be deleted from the main `items` array
-                    items = items.filter(i => i.id !== item.id);
-                    saveItemsToLocalStorage(); // Persist the change
-                    processAndRenderItems(); // Re-render the list
+            deleteButton.type = 'button';
+            deleteButton.textContent = '削除';
+            deleteButton.className = 'btn btn-sm delete-btn';
+            deleteButton.dataset.action = 'delete';
+            deleteButton.setAttribute('aria-label', `「${item.name}」を削除`);
 
-                    // If the item being deleted was also the one currently loaded in the edit form,
-                    // reset the form to 'add' mode.
-                    if (currentItemIdBeingEdited === item.id) {
-                        resetForm();
-                    }
-                }
-            });
-
-            // Append action buttons to their container
             actionButtonsDiv.appendChild(editButton);
             actionButtonsDiv.appendChild(deleteButton);
-
-            // Append action buttons to the itemCard
             itemCard.appendChild(actionButtonsDiv);
 
-            // Hanamaru stamp logic was attempted here but faced issues with the diff tool.
-            // If it were working, it would involve:
-            // 1. Creating a stamp element: const hanamaruStamp = document.createElement('div');
-            // 2. Adding a class: hanamaruStamp.classList.add('hanamaru-css-stamp');
-            // 3. Setting content: hanamaruStamp.innerHTML = '💮';
-            // 4. Appending to itemCard: itemCard.appendChild(hanamaruStamp);
-            // 5. Toggling a class on itemCard for CSS to show/hide: itemCard.classList.toggle('item-completed', item.status === '完了');
+            return itemCard;
+        }
 
-            // Finally, append the fully constructed itemCard to the list container in the DOM
-            itemListContainer.appendChild(itemCard);
+        function renderItems(itemsToRender) {
+            itemListContainer.textContent = '';
+            updateSummary(itemsToRender.length, items.length);
+
+            if (itemsToRender.length === 0) {
+                const emptyBox = document.createElement('div');
+                emptyBox.className = 'empty-state';
+
+                const emptyMessage = document.createElement('p');
+                const hasActiveFilter =
+                    currentFilterCategory !== ALL_FILTER || currentFilterStatus !== ALL_FILTER;
+                emptyMessage.textContent =
+                    items.length === 0
+                        ? 'アイテムはまだありません。フォームから追加してください。'
+                        : '該当するアイテムはありません。';
+                emptyBox.appendChild(emptyMessage);
+
+                if (hasActiveFilter && items.length > 0) {
+                    const clearFilterBtn = document.createElement('button');
+                    clearFilterBtn.type = 'button';
+                    clearFilterBtn.className = 'btn btn-link btn-sm';
+                    clearFilterBtn.dataset.action = 'reset-filters';
+                    clearFilterBtn.textContent = 'フィルタを解除してすべて表示';
+                    emptyBox.appendChild(clearFilterBtn);
+                }
+
+                itemListContainer.appendChild(emptyBox);
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            for (const item of itemsToRender) {
+                fragment.appendChild(createItemCard(item));
+            }
+            itemListContainer.appendChild(fragment);
+        }
+
+        function processAndRenderItems() {
+            const processed = processItems(items, {
+                category: currentFilterCategory,
+                status: currentFilterStatus,
+                sortOrder: currentSortOrder
+            });
+            renderItems(processed);
+        }
+
+        // --- Edit & Delete Actions ---
+
+        function startEditingItem(item) {
+            clearFormError();
+            nameInput.value = item.name;
+            categoryInput.value = item.category;
+            purchaseDateInput.value = item.purchaseDate;
+            notesInput.value = item.notes;
+            statusInput.value = item.status;
+
+            imageInput.value = '';
+            pendingImageName = item.imageName || '';
+            pendingImageDataUrl = item.imageDataUrl || '';
+            imageRemovedInEdit = false;
+            renderImagePreview(pendingImageName, pendingImageDataUrl);
+
+            currentItemIdBeingEdited = item.id;
+            setFormMode('edit');
+            processAndRenderItems();
+            inputFormSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            nameInput.focus();
+        }
+
+        function openDeleteDialog(item, triggerButton) {
+            pendingDeleteItemId = item.id;
+            lastFocusedBeforeDialog = triggerButton || null;
+            deleteDialogMessage.textContent = `「${item.name}」を削除してもよろしいですか？この操作は取り消せません。`;
+            if (typeof deleteDialog.showModal === 'function') {
+                deleteDialog.showModal();
+            } else {
+                deleteDialog.setAttribute('open', '');
+            }
+            deleteDialogCancel.focus();
+        }
+
+        function closeDeleteDialog() {
+            pendingDeleteItemId = null;
+            if (typeof deleteDialog.close === 'function' && deleteDialog.open) {
+                deleteDialog.close();
+            } else {
+                deleteDialog.removeAttribute('open');
+            }
+            if (lastFocusedBeforeDialog && document.contains(lastFocusedBeforeDialog)) {
+                lastFocusedBeforeDialog.focus();
+            }
+            lastFocusedBeforeDialog = null;
+        }
+
+        function confirmDeleteItem() {
+            if (pendingDeleteItemId === null) {
+                closeDeleteDialog();
+                return;
+            }
+            const target = items.find((i) => i.id === pendingDeleteItemId);
+            const deletedId = pendingDeleteItemId;
+            items = items.filter((i) => i.id !== deletedId);
+            const saved = saveItemsToLocalStorage();
+            closeDeleteDialog();
+
+            if (currentItemIdBeingEdited === deletedId) {
+                resetForm();
+            } else {
+                processAndRenderItems();
+            }
+
+            if (saved && target) {
+                showStatusMessage(`「${target.name}」を削除しました。`);
+            } else if (!saved) {
+                showStatusMessage('削除後の保存に失敗しました。', { isError: true });
+            }
+        }
+
+        function resetFilters() {
+            currentFilterCategory = ALL_FILTER;
+            currentFilterStatus = ALL_FILTER;
+            filterCategoryInput.value = ALL_FILTER;
+            filterStatusInput.value = ALL_FILTER;
+            processAndRenderItems();
+        }
+
+        // --- Event Listeners ---
+
+        itemForm.addEventListener('submit', handleSubmit);
+
+        nameInput.addEventListener('input', () => {
+            if (!formError.hidden && nameInput.value.trim()) {
+                clearFormError();
+            }
         });
-    }
 
-    // --- Event Listener for "Cancel" button ---
-    // Resets the form and ensures it's in 'add' mode.
-    cancelButton.addEventListener('click', () => {
-        resetForm();
+        imageInput.addEventListener('change', async () => {
+            const file = imageInput.files && imageInput.files[0];
+            if (!file) {
+                if (currentItemIdBeingEdited === null) {
+                    pendingImageName = '';
+                    pendingImageDataUrl = '';
+                    renderImagePreview('', '');
+                }
+                return;
+            }
+            pendingImageName = file.name;
+            imageRemovedInEdit = false;
+            pendingImageDataUrl = await readAndCompressImage(file);
+            renderImagePreview(pendingImageName, pendingImageDataUrl);
+        });
+
+        cancelButton.addEventListener('click', () => {
+            resetForm();
+        });
+
+        resetFiltersButton.addEventListener('click', resetFilters);
+
+        filterCategoryInput.addEventListener('change', (event) => {
+            currentFilterCategory = event.target.value;
+            processAndRenderItems();
+        });
+
+        filterStatusInput.addEventListener('change', (event) => {
+            currentFilterStatus = event.target.value;
+            processAndRenderItems();
+        });
+
+        sortByInput.addEventListener('change', (event) => {
+            currentSortOrder = event.target.value;
+            processAndRenderItems();
+        });
+
+        // Event delegation for card actions & empty-state filter reset
+        itemListContainer.addEventListener('click', (event) => {
+            const button = event.target.closest('button[data-action]');
+            if (!button) return;
+
+            const action = button.dataset.action;
+            if (action === 'reset-filters') {
+                resetFilters();
+                return;
+            }
+
+            const card = button.closest('.item-card');
+            if (!card) return;
+            const itemId = Number(card.dataset.id);
+            const item = items.find((i) => i.id === itemId);
+            if (!item) return;
+
+            if (action === 'edit') {
+                startEditingItem(item);
+            } else if (action === 'delete') {
+                openDeleteDialog(item, button);
+            }
+        });
+
+        deleteDialogCancel.addEventListener('click', closeDeleteDialog);
+        deleteDialogConfirm.addEventListener('click', confirmDeleteItem);
+        deleteDialog.addEventListener('cancel', (event) => {
+            event.preventDefault();
+            closeDeleteDialog();
+        });
+        deleteDialog.addEventListener('click', (event) => {
+            if (event.target === deleteDialog) {
+                closeDeleteDialog();
+            }
+        });
+
+        // --- Initial Load and Render ---
+        loadItemsFromLocalStorage();
+        setFormMode('add');
+        processAndRenderItems();
     });
-
-
-    // --- Event Listeners for Filters and Sort ---
-    // These listeners trigger re-processing and re-rendering of the item list
-    // whenever a filter or sort option changes.
-
-    filterCategoryInput.addEventListener('change', (event) => {
-        currentFilterCategory = event.target.value; // Update state variable
-        processAndRenderItems(); // Re-process and render
-    });
-
-    filterStatusInput.addEventListener('change', (event) => {
-        currentFilterStatus = event.target.value; // Update state variable
-        processAndRenderItems(); // Re-process and render
-    });
-
-    sortByInput.addEventListener('change', (event) => {
-        currentSortOrder = event.target.value; // Update state variable
-        processAndRenderItems(); // Re-process and render
-    });
-
-    // --- Initial Load and Render ---
-    // Actions to perform when the script first runs after DOM is ready.
-
-    loadItemsFromLocalStorage(); // Load any previously saved items from LocalStorage
-    setFormMode('add'); // Ensure the form is initially in 'add' mode
-    processAndRenderItems(); // Perform the initial processing and rendering of items
-
-});
 }
