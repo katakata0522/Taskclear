@@ -1,0 +1,17 @@
+{
+  "name": "hobby-backlog-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "趣味のバックログ管理",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "node --check server.js && node --check logic.js && node --check script.js",
+    "lint": "node --check server.js && node --check logic.js && node --check script.js && node --test test/logic.test.js",
+    "test": "node --test test/logic.test.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
